@@ -84,7 +84,7 @@ describe('infra smoke: SQS real + Postgres real (requer infra:up e migrate)', ()
     );
 
     // Consome só a mensagem desta execução; as demais voltam à fila imediatamente.
-    let found: { body: any; sent: number; attrs: Record<string, string> } | undefined;
+    let found: { body: Record<string, unknown>; sent: number; attrs: Record<string, string> } | undefined;
     for (let i = 0; i < 10 && !found; i++) {
       const res = await sqs.send(
         new ReceiveMessageCommand({
