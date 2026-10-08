@@ -35,7 +35,7 @@
 |----|-----------|------|--------|
 | RF-20 | Regras são **dados** (definição declarativa), não código. API para criar, listar, consultar, editar e arquivar. | M | "Extensibilidade das regras sem redeploy" |
 | RF-21 | Toda alteração gera uma **nova versão imutável**; só a versão publicada é avaliada. | M | |
-| RF-22 | Ciclo de vida: `DRAFT → IN_REVIEW → ACTIVE → ARCHIVED`; reversão (*rollback*) para versão anterior com um comando. | M | |
+| RF-22 | Ciclo de vida: `DRAFT → ACTIVE → ARCHIVED`; a ativação (`approve`) exige aprovador ≠ autor (P-34); reversão (*rollback*) para versão anterior com um comando. O contrato mantém `submit`, `reject` e `IN_REVIEW` como evolução; no desafio só `approve` é implementado. | M | |
 | RF-23 | Instâncias do motor **recarregam regras em tempo de execução** sem reinício, em até 30 s após a publicação; mantêm a última versão válida se o repositório de regras estiver indisponível. | M | "Seguir operando se um serviço auxiliar cair" |
 | RF-24 | Modo **shadow**: regra avaliada e registrada, mas sem gerar alerta, para calibrar antes de ativar. | S | |
 | RF-25 | **Simulação (dry-run)**: avaliar uma regra candidata contra um evento ou lote de amostra e ver o resultado. | S | |
@@ -54,7 +54,7 @@
 | RF-35 | Canal **externo**: acionar o cliente (push/SMS/e-mail) através de adaptador de provedor. O provedor real pode ser simulado. | M | "canais ... externos" |
 | RF-36 | Entrega por canal com **retry exponencial com *jitter***, *circuit breaker* por provedor, DLQ e *fallback* de canal (ex.: push → SMS). | M | Resiliência |
 | RF-37 | Controle de **fadiga**: no máximo 1 notificação ao mesmo cliente por janela configurável (ex.: 5 min), agregando alertas. | S | |
-| RF-38 | API de consulta e atualização de status do alerta (`OPEN`, `ACK`, `CONFIRMED_FRAUD`, `FALSE_POSITIVE`). | S | |
+| RF-38 | API de consulta **por id** e atualização de status do alerta (`OPEN`, `ACK`, `CONFIRMED_FRAUD`, `FALSE_POSITIVE`). A listagem com filtros (`GET /v1/alerts`) fica documentada, não implementada. | S | |
 | RF-39 | Consumidores recebem o `alertId` como chave de idempotência em todos os canais. | M | |
 
 ## RF-5 Degradação e recuperação

@@ -45,9 +45,9 @@
 | P-15 | Volume diário | 8k TPS × 86.400 s ≈ **690 M eventos/dia** (limite superior; a média real tende a ser menor). | [Derivada] de P-10 |
 | P-16 | Taxa de alerta | **Valor de projeto: 0,1%** dos eventos (8 alertas/s a 8k TPS; 25/s no pico de 25k). **Faixa plausível: 0,02% a 0,3%** (1,6 a 24 alertas/s sustentado; 5 a 75/s no pico), derivada de fraude confirmada de 4 a 30 por 100 mil transações e precisão de alerta de 10% a 20%. O teste de carga parametriza a taxa e cobre de 0,02% a 5% (400 alertas/s sustentado, 1.250/s no pico); 100% serve de pior caso isolado do caminho de alerta. O caminho de alerta é bem menos exigente que o de ingestão. | [Estimativa fundamentada] ver [pesquisa](pesquisa-taxa-de-alertas.md) |
 | P-17 | Cardinalidade (fase 2) | ~50 M de clientes ativos. Estado de janela por cliente em memória/cache só para os ativos nos últimos N minutos. | [Estimativa] |
-| P-18 | Ordenação (necessária às regras com janela, fase 2; a partição por `accountId` vale desde a fase 1) | Eventos de **um mesmo cliente/conta** precisam ser avaliados em ordem aproximada (regras de velocidade). Não há exigência de ordem global. Chave de particionamento: `accountId`. | [Decisão de projeto] |
+| P-18 | Ordenação (necessária às regras com janela, fase 2; a partição por `accountId` vale desde a fase 1) | Eventos de **um mesmo cliente/conta** não precisam de ordem estrita: a contagem da regra de velocidade é comutativa e idempotente (ver [ADR-02](adr/ADR-02-dedupe-e-estado-de-janela.md)), então ordem aproximada basta. Não há exigência de ordem global. Chave de particionamento: `accountId`. | [Decisão de projeto] |
 | P-19 | Eventos atrasados (fase 2) | Toleramos até **5 min** de atraso/fora de ordem (usa-se `occurredAt` com *allowed lateness*). Acima disso, o evento é processado em modo "tardio": regras com janela são reavaliadas em melhor esforço e o alerta carrega `late=true`. | [Estimativa] |
-| P-20 | Retenção | Eventos brutos: 90 dias em storage frio. Alertas e trilha de auditoria: 5 anos. Estado de janela: horas (TTL por regra). | [Estimativa] a confirmar com jurídico/DPO |
+| P-20 | Retenção | Eventos brutos: 90 dias em storage frio (**só desenhado, não implementado**). Alertas e trilha de auditoria: 5 anos. Estado de janela: horas (TTL por regra). | [Estimativa] a confirmar com jurídico/DPO |
 | P-21 | Retenção da DLQ | **14 dias**, cifrada e com acesso restrito (a mensagem original pode conter dados pessoais indiretos). Após reprocessar ou descartar, o payload é apagado e só o registro de auditoria permanece. | [Decisão de projeto] |
 
 > **Base** de cada número: `[Enunciado]` vem do case; `[Derivada]` é cálculo a partir de outra premissa; `[Estimativa]` é suposição do autor, sem fonte; `[Estimativa fundamentada]` tem fonte pública e limites declarados; `[Decisão de projeto]` é escolha, não medição.
@@ -61,7 +61,7 @@
 | P-31 | Os eventos **não trazem PAN, CPF nem nome em claro**. Identificadores são tokens opacos (`customerId`, `accountId`, `instrumentToken`). A resolução para dados pessoais, quando necessária ao canal de notificação, ocorre no serviço de notificação via serviço de cadastro/token vault (fora do escopo). |
 | P-32 | Base legal LGPD: **prevenção à fraude e segurança do titular** (art. 7º, IX e art. 11, II, "g"; confirmar com jurídico/DPO). Aplicam-se minimização, finalidade, retenção definida e trilha de auditoria. |
 | P-33 | Criptografia em repouso com chaves gerenciadas (KMS) e rotação; segredos em secret manager, nunca em imagem ou repositório. |
-| P-34 | Mudanças de regra exigem papel `fraud-rules-admin`; publicação exige aprovação em duas etapas (autor ≠ aprovador) e fica na trilha de auditoria. |
+| P-34 | Mudanças de regra exigem papel `fraud-rules-admin`; a ativação exige que o aprovador seja diferente do autor (checagem no `approve`, sem estado `IN_REVIEW` no desafio) e fica na trilha de auditoria. |
 
 ## 5. Premissas de plataforma e entrega
 
@@ -69,7 +69,7 @@
 |----|----------|
 | P-40 | Stack-alvo: **Node.js/TypeScript (NestJS)**. Escolha justificada por domínio do autor e velocidade de entrega no prazo de 7 dias; limites de CPU e GC serão mitigados com escala horizontal e processamento em lote. |
 | P-41 | Cloud: **AWS**. O ambiente de validação de carga deve ser simples e de baixo custo. Orquestração em EKS fica como alvo de produção documentado; o desafio roda localmente via Docker Compose e, se houver tempo, valida throughput na AWS. |
-| P-42 | Mensageria: **decisão em aberto, tratada em ADR** (SQS vs Kafka/MSK). Os contratos aqui são **independentes de broker**. |
+| P-42 | Mensageria: ver [ADR-01](adr/ADR-01-mensageria.md) (SQS padrão na entrada, SNS FIFO na saída; alternativa Kafka/MSK). Os contratos aqui são **independentes de broker**. |
 | P-43 | O desafio entrega código executável + documentação + ADRs + testes + apresentação. Nem todo componente de produção será implementado; o que for simulado será declarado. |
 | P-44 | Enunciado: take-home de 7 dias, seguido de defesa ao vivo. Planejamento interno atualizado em 07/10/2026: **6 dias de implementação, de 07 a 12/10/2026**, conforme [plano](04-plano-implementacao.md). A data da defesa e o prazo acordado com o avaliador precisam ser confirmados separadamente. |
 
@@ -77,8 +77,8 @@
 
 | # | Decisão | Opções | Impacto nos contratos |
 |---|---------|--------|-----------------------|
-| ADR-01 | Mensageria | SQS (+SNS) · Kafka/MSK · Kinesis | Nenhum no payload; muda a chave de partição (`MessageGroupId`/partition key). |
-| ADR-02 | Estado de janelas (fase 2) e deduplicação (fase 1) | Redis/ElastiCache · DynamoDB · estado local + changelog | Nenhum nos contratos. **Deduplicação** é decidida na fase 1 (restrição de unicidade no armazenamento, cache opcional). **Estado de janelas** fica adiado atrás da porta `WindowStateStore`. |
-| ADR-03 | Motor de regras | JSON Logic · CEL · DSL própria | Campo `expression` do contrato de regra. |
-| ADR-04 | Armazenamento de alertas/auditoria | DynamoDB · PostgreSQL | Nenhum nos contratos. |
-| ADR-05 | Estratégia de degradação | fail-open vs fail-closed por dependência | Campo `degraded` no alerta. |
+| [ADR-01](adr/ADR-01-mensageria.md) | Mensageria (proposto: SQS + SNS FIFO) | SQS (+SNS) · Kafka/MSK · Kinesis | Nenhum no payload; muda a chave de partição (`MessageGroupId`/partition key). |
+| [ADR-02](adr/ADR-02-dedupe-e-estado-de-janela.md) | Estado de janelas (fase 2, proposto: Redis `ZSET`) e deduplicação (fase 1, proposto: `UNIQUE` no Postgres) | Redis/ElastiCache · DynamoDB · estado local + changelog | Nenhum nos contratos. **Deduplicação** é decidida na fase 1 (restrição de unicidade no armazenamento, cache opcional). **Estado de janelas** fica adiado atrás da porta `WindowStateStore`. |
+| [ADR-03](adr/ADR-03-motor-de-regras.md) | Motor de regras (linguagem **em aberto**: CEL ou JSON Logic) | JSON Logic · CEL · DSL própria | Campo `expression` do contrato de regra. |
+| [ADR-04](adr/ADR-04-armazenamento.md) | Armazenamento de alertas/regras/auditoria (proposto: PostgreSQL) | DynamoDB · PostgreSQL | Nenhum nos contratos. |
+| [ADR-05](adr/ADR-05-estrategia-de-degradacao.md) | Estratégia de degradação (proposto) | fail-open vs fail-closed por dependência | Campo `degraded` no alerta. |
