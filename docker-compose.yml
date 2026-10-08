@@ -31,7 +31,8 @@ services:
     volumes:
       - ./infra/localstack/init-aws.sh:/etc/localstack/init/ready.d/init-aws.sh:ro
     healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:4566/_localstack/init/ready | grep -q '\"completed\": true' || exit 1"]
+      # "completed" fica true mesmo se o script de init falhar; exigir também a última fila criada.
+      test: ["CMD-SHELL", "awslocal sqs get-queue-url --queue-name alert-deliveries-customer-push.fifo >/dev/null || exit 1"]
       interval: 3s
       timeout: 3s
       retries: 30
