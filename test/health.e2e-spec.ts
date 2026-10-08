@@ -7,7 +7,7 @@ describe('health (requer `npm run infra:up`)', () => {
   let app: INestApplication;
 
   beforeAll(async () => {
-    process.env.DATABASE_URL ??= 'postgres://fraud:fraud@localhost:5433/fraud';
+    process.env.DATABASE_URL ??= 'postgres://fraud:fraud@localhost:55432/fraud';
     process.env.REDIS_URL ??= 'redis://localhost:6379';
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
     app = moduleRef.createNestApplication();

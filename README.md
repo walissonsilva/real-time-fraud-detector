@@ -18,7 +18,7 @@ infra/localstack/  criação das filas e tópicos (ADR-01)
 
 ```bash
 npm install
-npm run infra:up      # Postgres (porta 5433), Redis, LocalStack (SQS/SNS)
+npm run infra:up      # Postgres (porta 55432), Redis, LocalStack (SQS/SNS)
 npm run migrate
 npm run start:dev     # http://localhost:3000/health/ready
 npm test              # unitários

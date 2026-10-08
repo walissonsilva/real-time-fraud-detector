@@ -1,7 +1,7 @@
 import { Controller, Get, HttpCode, Inject, ServiceUnavailableException } from '@nestjs/common';
 import type Redis from 'ioredis';
 import type { Pool } from 'pg';
-import { PG_POOL } from '../persistence/postgres.module';
+import { PG_POOL } from '../persistence/pg-pool.token';
 import { REDIS } from '../cache/redis.module';
 
 @Controller()

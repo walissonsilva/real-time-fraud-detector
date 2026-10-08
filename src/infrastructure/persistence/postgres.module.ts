@@ -1,8 +1,12 @@
 import { Global, Inject, Injectable, Module, OnApplicationShutdown } from '@nestjs/common';
 import { Pool } from 'pg';
 import { APP_CONFIG, AppConfig } from '../config/config.module';
+import { ALERT_REPOSITORY } from '../../application/ports/alert-repository.port';
+import { PostgresAlertRepository } from './postgres-alert.repository';
+import { PG_POOL } from './pg-pool.token';
 
-export const PG_POOL = Symbol('PG_POOL');
+export { PG_POOL };
+
 
 @Injectable()
 class PoolLifecycle implements OnApplicationShutdown {
@@ -21,7 +25,8 @@ class PoolLifecycle implements OnApplicationShutdown {
       useFactory: (config: AppConfig) => new Pool({ connectionString: config.databaseUrl, max: 20 }),
     },
     PoolLifecycle,
+    { provide: ALERT_REPOSITORY, useClass: PostgresAlertRepository },
   ],
-  exports: [PG_POOL],
+  exports: [PG_POOL, ALERT_REPOSITORY],
 })
 export class PostgresModule {}
