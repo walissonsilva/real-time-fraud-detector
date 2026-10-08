@@ -658,19 +658,7 @@ components:
         DISABLED = desligada por kill switch (RF-53); reversível apenas por novo approve/rollback.
     RuleVersion:
       description: Regra (Rule v1) com metadados de versão e ciclo de vida.
-      allOf:
-        - $ref: './rule.v1.schema.json'
-        - type: object
-          required: [version, status, createdBy, createdAt]
-          properties:
-            version: { type: integer, minimum: 1 }
-            status: { $ref: '#/components/schemas/RuleStatus' }
-            createdBy: { type: string, description: Identidade do autor. }
-            createdAt: { type: string, format: date-time }
-            approvedBy: { type: string }
-            approvedAt: { type: string, format: date-time }
-            activatedAt: { type: string, format: date-time }
-            changeNote: { type: string, maxLength: 500 }
+      $ref: './rule-version.v1.schema.json'
     RoutingPolicy:
       type: object
       required: [rules]

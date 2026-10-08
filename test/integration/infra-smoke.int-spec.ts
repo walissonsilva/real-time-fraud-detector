@@ -8,6 +8,7 @@ import {
   SQSClient,
   SendMessageCommand,
   ChangeMessageVisibilityCommand,
+  PurgeQueueCommand,
 } from '@aws-sdk/client-sqs';
 import Ajv2020 from 'ajv/dist/2020';
 import addFormats from 'ajv-formats';
@@ -27,6 +28,12 @@ describe('infra smoke: SQS real + Postgres real (requer infra:up e migrate)', ()
   const repo = new PostgresAlertRepository(pool);
   const runId = randomUUID();
   const alertIds: string[] = [];
+
+  // Sem purge, mensagens de execuções anteriores (VisibilityTimeout 10 s) fazem o consumo varrer a fila por ~2 min.
+  beforeAll(async () => {
+    const { QueueUrl } = await sqs.send(new GetQueueUrlCommand({ QueueName: 'transactions' }));
+    await sqs.send(new PurgeQueueCommand({ QueueUrl }));
+  });
 
   afterAll(async () => {
     if (alertIds.length) {

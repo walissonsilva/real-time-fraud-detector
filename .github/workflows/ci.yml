@@ -1,0 +1,48 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - run: npm test
+      - run: npm run contracts:validate
+
+  integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: cp .env.example .env
+      - run: npm ci
+      - run: npm run infra:up
+      - run: npm run migrate
+      - run: npm run test:int
+      - run: npm run test:e2e
+      - run: docker build -t fraud-detector:ci .
+      - name: Logs da infraestrutura
+        if: failure()
+        run: docker compose logs --no-color
+      - name: Derrubar infraestrutura
+        if: always()
+        run: npm run infra:down

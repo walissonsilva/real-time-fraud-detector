@@ -1,0 +1,97 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fraud-detector.internal/schemas/rule-version.v1.schema.json",
+  "title": "RuleVersion v1",
+  "description": "Rule v1 acrescida de metadados de versão e ciclo de vida. Referencia as propriedades de rule.v1 (que é fechada para o POST) sem duplicá-las.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "ruleId",
+    "name",
+    "kind",
+    "severity",
+    "expression",
+    "mode",
+    "version",
+    "status",
+    "createdBy",
+    "createdAt"
+  ],
+  "properties": {
+    "ruleId": {
+      "$ref": "rule.v1.schema.json#/properties/ruleId"
+    },
+    "version": {
+      "$ref": "rule.v1.schema.json#/properties/version"
+    },
+    "name": {
+      "$ref": "rule.v1.schema.json#/properties/name"
+    },
+    "description": {
+      "$ref": "rule.v1.schema.json#/properties/description"
+    },
+    "kind": {
+      "$ref": "rule.v1.schema.json#/properties/kind"
+    },
+    "severity": {
+      "$ref": "rule.v1.schema.json#/properties/severity"
+    },
+    "weight": {
+      "$ref": "rule.v1.schema.json#/properties/weight"
+    },
+    "mode": {
+      "$ref": "rule.v1.schema.json#/properties/mode"
+    },
+    "appliesTo": {
+      "$ref": "rule.v1.schema.json#/properties/appliesTo"
+    },
+    "params": {
+      "$ref": "rule.v1.schema.json#/properties/params"
+    },
+    "window": {
+      "$ref": "rule.v1.schema.json#/properties/window"
+    },
+    "expression": {
+      "$ref": "rule.v1.schema.json#/properties/expression"
+    },
+    "reason": {
+      "$ref": "rule.v1.schema.json#/properties/reason"
+    },
+    "ttlSeconds": {
+      "$ref": "rule.v1.schema.json#/properties/ttlSeconds"
+    },
+    "status": {
+      "enum": [
+        "DRAFT",
+        "IN_REVIEW",
+        "ACTIVE",
+        "ARCHIVED",
+        "DISABLED"
+      ],
+      "description": "Ciclo de vida (RF-22); DISABLED = kill switch (RF-53)."
+    },
+    "createdBy": {
+      "type": "string",
+      "description": "Identidade do autor."
+    },
+    "createdAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "approvedBy": {
+      "type": "string"
+    },
+    "approvedAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "activatedAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "changeNote": {
+      "type": "string",
+      "maxLength": 500
+    }
+  }
+}
