@@ -1,0 +1,96 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fraud-detector.internal/schemas/transaction-event.v1.schema.json",
+  "title": "TransactionEvent v1",
+  "description": "Fato imutável de transação publicado pelos serviços de origem. Sem PAN, CPF ou nome em claro: apenas tokens opacos.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "eventId", "transactionId", "eventType", "occurredAt", "producer", "transactionType", "channel", "amount", "customerId", "accountId"],
+  "properties": {
+    "schemaVersion": { "type": "string", "pattern": "^1\\.[0-9]+$", "description": "Versão do contrato. Mudanças compatíveis incrementam o minor (1.1, 1.2); quebra de compatibilidade exige v2." },
+    "eventId": { "type": "string", "format": "uuid", "description": "Único por emissão. Muda em reenvios do produtor." },
+    "transactionId": { "type": "string", "minLength": 8, "maxLength": 64, "description": "Identificador de negócio da transação. Idempotência do evento: transactionId + eventType (P-03). Idempotência do alerta: transactionId (P-04)." },
+    "eventType": { "enum": ["TRANSACTION_AUTHORIZED", "TRANSACTION_DECLINED", "TRANSACTION_REVERSED"] },
+    "occurredAt": { "type": "string", "format": "date-time", "description": "Quando a transação ocorreu (UTC, RFC 3339). Base das janelas temporais." },
+    "producer": { "type": "string", "maxLength": 64, "description": "Serviço de origem, ex.: pix-service." },
+    "transactionType": { "enum": ["PIX", "TED", "BOLETO", "CARD_PURCHASE", "CARD_WITHDRAWAL", "TRANSFER_INTERNAL"] },
+    "channel": { "enum": ["MOBILE_APP", "WEB", "ATM", "POS", "API", "BRANCH"] },
+    "amount": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["minorUnits", "currency"],
+      "properties": {
+        "minorUnits": { "type": "integer", "minimum": 0, "description": "Valor em menor unidade da moeda (centavos). Evita ponto flutuante." },
+        "currency": { "type": "string", "pattern": "^[A-Z]{3}$", "description": "ISO 4217." }
+      }
+    },
+    "customerId": { "type": "string", "maxLength": 64, "description": "Token opaco do cliente." },
+    "accountId": { "type": "string", "maxLength": 64, "description": "Token opaco da conta. CHAVE DE PARTICIONAMENTO (ordenação por conta)." },
+    "instrumentToken": { "type": "string", "maxLength": 64, "description": "Token do cartão/chave Pix. Nunca o PAN." },
+    "counterparty": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "idToken": { "type": "string", "maxLength": 64 },
+        "institutionCode": { "type": "string", "maxLength": 16, "description": "ISPB/COMPE." },
+        "firstSeenAt": { "type": "string", "format": "date-time", "description": "Quando o cliente transacionou com essa contraparte pela primeira vez; ausente = nunca." }
+      }
+    },
+    "merchant": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "maxLength": 64 },
+        "mcc": { "type": "string", "pattern": "^[0-9]{4}$" },
+        "country": { "type": "string", "pattern": "^[A-Z]{2}$", "description": "ISO 3166-1 alfa-2." }
+      }
+    },
+    "origin": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "deviceIdHash": { "type": "string", "maxLength": 64, "description": "Hash do identificador do dispositivo." },
+        "ipAddress": { "type": "string", "description": "Dado pessoal (LGPD). Opcional; se presente, só persistir truncado/hasheado." },
+        "geo": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["latitude", "longitude"],
+          "properties": {
+            "latitude": { "type": "number", "minimum": -90, "maximum": 90 },
+            "longitude": { "type": "number", "minimum": -180, "maximum": 180 },
+            "country": { "type": "string", "pattern": "^[A-Z]{2}$" }
+          }
+        }
+      }
+    },
+    "declineReason": { "type": "string", "maxLength": 64, "description": "Presente quando eventType = TRANSACTION_DECLINED." },
+    "traceId": { "type": "string", "pattern": "^[0-9a-f]{32}$", "description": "W3C trace-id do produtor, quando existir." },
+    "attributes": {
+      "type": "object",
+      "maxProperties": 20,
+      "additionalProperties": { "type": ["string", "number", "boolean"] },
+      "description": "Extensão livre e pequena. Campos novos estáveis devem virar campos tipados em v1.x."
+    }
+  },
+  "allOf": [
+    { "if": { "properties": { "eventType": { "const": "TRANSACTION_DECLINED" } } }, "then": { "required": ["declineReason"] } }
+  ],
+  "examples": [
+    {
+      "schemaVersion": "1.0",
+      "eventId": "0f9a3f0e-6f58-4f0b-9e0a-7f2f6b0c9a11",
+      "transactionId": "tx-20261003-9d41c7a2",
+      "eventType": "TRANSACTION_AUTHORIZED",
+      "occurredAt": "2026-10-03T14:21:07.412Z",
+      "producer": "pix-service",
+      "transactionType": "PIX",
+      "channel": "MOBILE_APP",
+      "amount": { "minorUnits": 1500000, "currency": "BRL" },
+      "customerId": "cus_8f3b1c",
+      "accountId": "acc_41d7e0",
+      "counterparty": { "idToken": "cpt_77aa10", "institutionCode": "60701190" },
+      "origin": { "deviceIdHash": "dvc_c0ffee", "geo": { "latitude": -23.55, "longitude": -46.63, "country": "BR" } },
+      "traceId": "4bf92f3577b34da6a3ce929d0e0e4736"
+    }
+  ]
+}

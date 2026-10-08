@@ -1,0 +1,83 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fraud-detector.internal/schemas/rule.v1.schema.json",
+  "title": "Rule v1",
+  "description": "Definição declarativa de regra de detecção. Dados, não código: publicada em runtime. Cada edição cria uma nova versão imutável.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["ruleId", "name", "kind", "severity", "expression", "mode"],
+  "properties": {
+    "ruleId": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{2,62}$", "description": "Estável entre versões." },
+    "version": { "type": "integer", "minimum": 1, "readOnly": true },
+    "name": { "type": "string", "maxLength": 120 },
+    "description": { "type": "string", "maxLength": 1000 },
+    "kind": { "enum": ["STATELESS", "WINDOWED"] },
+    "severity": { "enum": ["LOW", "MEDIUM", "HIGH", "CRITICAL"] },
+    "weight": { "type": "integer", "minimum": 1, "maximum": 100, "default": 10, "description": "Contribuição ao score agregado." },
+    "mode": { "enum": ["ACTIVE", "SHADOW"], "description": "SHADOW avalia e registra, mas não gera alerta (RF-24)." },
+    "appliesTo": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Pré-filtro barato aplicado antes da expressão.",
+      "properties": {
+        "transactionTypes": { "type": "array", "items": { "type": "string" } },
+        "channels": { "type": "array", "items": { "type": "string" } },
+        "eventTypes": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "params": {
+      "type": "object",
+      "additionalProperties": { "type": ["string", "number", "boolean", "array"] },
+      "description": "Parâmetros nomeados usados na expressão (ex.: limite). Permite ajuste sem reescrever a lógica."
+    },
+    "window": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["groupBy", "durationSeconds", "aggregation"],
+      "description": "Obrigatório quando kind = WINDOWED.",
+      "properties": {
+        "groupBy": { "enum": ["customerId", "accountId", "deviceIdHash", "counterpartyIdToken"] },
+        "durationSeconds": { "type": "integer", "minimum": 1, "maximum": 86400 },
+        "type": { "enum": ["SLIDING", "TUMBLING"], "default": "SLIDING" },
+        "aggregation": { "enum": ["COUNT", "SUM", "DISTINCT_COUNT", "MAX"] },
+        "field": { "type": "string", "description": "Campo agregado (ex.: amount.minorUnits, origin.deviceIdHash). Dispensável para COUNT." }
+      }
+    },
+    "expression": {
+      "type": "string",
+      "maxLength": 2000,
+      "description": "Expressão booleana (linguagem decidida no ADR-03; alvo: CEL). Variáveis: tx.* (evento), agg.* (janela), params.*. Sem efeitos colaterais, sem laços, com custo limitado."
+    },
+    "reason": { "type": "string", "maxLength": 256, "description": "Texto que explica o disparo no alerta; admite {placeholders} de agg/params." },
+    "ttlSeconds": { "type": "integer", "minimum": 60, "description": "TTL do estado da janela." }
+  },
+  "allOf": [
+    { "if": { "properties": { "kind": { "const": "WINDOWED" } } }, "then": { "required": ["window"] } }
+  ],
+  "examples": [
+    {
+      "ruleId": "velocity-pix-10m",
+      "name": "Muitos Pix em 10 minutos",
+      "kind": "WINDOWED",
+      "severity": "HIGH",
+      "weight": 40,
+      "mode": "ACTIVE",
+      "appliesTo": { "transactionTypes": ["PIX"], "eventTypes": ["TRANSACTION_AUTHORIZED"] },
+      "params": { "maxCount": 8 },
+      "window": { "groupBy": "accountId", "durationSeconds": 600, "type": "SLIDING", "aggregation": "COUNT" },
+      "expression": "agg.value > params.maxCount",
+      "reason": "{agg.value} Pix em 10 min (limite {params.maxCount})"
+    },
+    {
+      "ruleId": "high-value-new-counterparty",
+      "name": "Valor alto para contraparte nova",
+      "kind": "STATELESS",
+      "severity": "MEDIUM",
+      "weight": 25,
+      "mode": "SHADOW",
+      "params": { "limitMinorUnits": 500000 },
+      "expression": "tx.amount.minorUnits >= params.limitMinorUnits && !has(tx.counterparty.firstSeenAt)",
+      "reason": "Valor alto para contraparte nunca usada"
+    }
+  ]
+}

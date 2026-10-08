@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fraud-detector.internal/schemas/alert-delivery.v1.schema.json",
+  "title": "AlertDelivery v1",
+  "description": "Pedido de entrega de um alerta a UM canal. Gerado a partir do FraudAlert pela política de roteamento e consumido pelo adaptador do canal. Uma mensagem por (alerta, canal): o deliveryId determinístico garante idempotência da entrega.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "deliveryId", "alertId", "channel", "audience", "severity", "customerId", "attempt", "createdAt", "expiresAt"],
+  "properties": {
+    "schemaVersion": { "type": "string", "pattern": "^1\\.[0-9]+$" },
+    "deliveryId": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$",
+      "description": "sha256('alert-delivery:v1:' + alertId + ':' + channel). Estável entre retries; é a chave de idempotência do adaptador."
+    },
+    "alertId": { "type": "string", "format": "uuid" },
+    "channel": {
+      "enum": ["ANTIFRAUD_QUEUE", "ANTIFRAUD_WEBHOOK", "PUSH", "SMS", "EMAIL"],
+      "description": "Internos: ANTIFRAUD_QUEUE, ANTIFRAUD_WEBHOOK. Externos (cliente): PUSH, SMS, EMAIL."
+    },
+    "audience": { "enum": ["ANTIFRAUD_TEAM", "CUSTOMER"] },
+    "severity": { "enum": ["LOW", "MEDIUM", "HIGH", "CRITICAL"] },
+    "customerId": { "type": "string", "description": "Token opaco. O adaptador de canal externo resolve o contato no serviço de cadastro/token vault (P-31); o contato nunca trafega nesta mensagem." },
+    "template": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id"],
+      "description": "Conteúdo da notificação ao cliente. Parâmetros sem PII; o texto final é montado pelo adaptador.",
+      "properties": {
+        "id": { "type": "string", "description": "Ex.: suspicious-transaction.v1." },
+        "locale": { "type": "string", "default": "pt-BR" },
+        "params": { "type": "object", "additionalProperties": { "type": ["string", "number", "boolean"] } }
+      }
+    },
+    "fallbackChannels": {
+      "type": "array",
+      "items": { "enum": ["ANTIFRAUD_QUEUE", "ANTIFRAUD_WEBHOOK", "PUSH", "SMS", "EMAIL"] },
+      "description": "Ordem de fallback se este canal esgotar as tentativas ou estiver com o circuit breaker aberto (RF-36)."
+    },
+    "attempt": { "type": "integer", "minimum": 1, "description": "Número da tentativa; incrementa a cada retry." },
+    "notBefore": { "type": "string", "format": "date-time", "description": "Não entregar antes disso (backoff ou janela anti-fadiga, RF-37)." },
+    "createdAt": { "type": "string", "format": "date-time" },
+    "expiresAt": { "type": "string", "format": "date-time", "description": "Depois disso a entrega perde valor e vai para a DLQ com DELIVERY_EXPIRED." },
+    "traceId": { "type": "string", "pattern": "^[0-9a-f]{32}$" }
+  },
+  "allOf": [
+    { "if": { "properties": { "audience": { "const": "CUSTOMER" } } }, "then": { "required": ["template"], "properties": { "channel": { "enum": ["PUSH", "SMS", "EMAIL"] } } } },
+    { "if": { "properties": { "audience": { "const": "ANTIFRAUD_TEAM" } } }, "then": { "properties": { "channel": { "enum": ["ANTIFRAUD_QUEUE", "ANTIFRAUD_WEBHOOK"] } } } }
+  ],
+  "examples": [
+    {
+      "schemaVersion": "1.0",
+      "deliveryId": "0904a074c93da29e5b7aa15991fc8663dd844cc84b3fa92a7640d8766972ccf9",
+      "alertId": "b4d1c1de-5a0f-4a58-9f4c-0d0c8b6c0e11",
+      "channel": "PUSH",
+      "audience": "CUSTOMER",
+      "severity": "HIGH",
+      "customerId": "cus_8f3b1c",
+      "template": { "id": "suspicious-transaction.v1", "locale": "pt-BR", "params": { "amountFormatted": "R$ 15.000,00", "transactionType": "PIX" } },
+      "fallbackChannels": ["SMS"],
+      "attempt": 1,
+      "createdAt": "2026-10-03T14:21:07.620Z",
+      "expiresAt": "2026-10-03T14:31:07.620Z",
+      "traceId": "4bf92f3577b34da6a3ce929d0e0e4736"
+    }
+  ]
+}

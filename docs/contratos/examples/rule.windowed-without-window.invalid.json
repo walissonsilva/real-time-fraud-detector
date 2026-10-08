@@ -1,0 +1,21 @@
+{
+  "ruleId": "velocity-pix-10m",
+  "name": "Muitos Pix em 10 minutos",
+  "kind": "WINDOWED",
+  "severity": "HIGH",
+  "weight": 40,
+  "mode": "ACTIVE",
+  "appliesTo": {
+    "transactionTypes": [
+      "PIX"
+    ],
+    "eventTypes": [
+      "TRANSACTION_AUTHORIZED"
+    ]
+  },
+  "params": {
+    "maxCount": 8
+  },
+  "expression": "agg.value > params.maxCount",
+  "reason": "{agg.value} Pix em 10 min (limite {params.maxCount})"
+}

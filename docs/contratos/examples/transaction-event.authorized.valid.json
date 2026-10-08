@@ -1,0 +1,29 @@
+{
+  "schemaVersion": "1.0",
+  "eventId": "0f9a3f0e-6f58-4f0b-9e0a-7f2f6b0c9a11",
+  "transactionId": "tx-20261003-9d41c7a2",
+  "eventType": "TRANSACTION_AUTHORIZED",
+  "occurredAt": "2026-10-03T14:21:07.412Z",
+  "producer": "pix-service",
+  "transactionType": "PIX",
+  "channel": "MOBILE_APP",
+  "amount": {
+    "minorUnits": 1500000,
+    "currency": "BRL"
+  },
+  "customerId": "cus_8f3b1c",
+  "accountId": "acc_41d7e0",
+  "counterparty": {
+    "idToken": "cpt_77aa10",
+    "institutionCode": "60701190"
+  },
+  "origin": {
+    "deviceIdHash": "dvc_c0ffee",
+    "geo": {
+      "latitude": -23.55,
+      "longitude": -46.63,
+      "country": "BR"
+    }
+  },
+  "traceId": "4bf92f3577b34da6a3ce929d0e0e4736"
+}

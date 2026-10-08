@@ -1,0 +1,68 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fraud-detector.internal/schemas/fraud-alert.v1.schema.json",
+  "title": "FraudAlert v1",
+  "description": "Alerta gerado pelo motor. Publicado no tópico/fila de alertas e entregue aos canais. No máximo um por transactionId.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "alertId", "dedupeKey", "transactionId", "customerId", "accountId", "severity", "score", "status", "triggeredRules", "transaction", "transactionOccurredAt", "ingestedAt", "detectedAt", "publishedAt", "degraded"],
+  "properties": {
+    "schemaVersion": { "type": "string", "pattern": "^1\\.[0-9]+$", "description": "Versão do contrato. Mudanças compatíveis incrementam o minor (1.1, 1.2); quebra de compatibilidade exige v2." },
+    "alertId": { "type": "string", "format": "uuid", "description": "Único. Usado pelos receptores como chave de idempotência." },
+    "dedupeKey": { "type": "string", "pattern": "^[0-9a-f]{64}$", "description": "sha256('fraud-alert:v1:' + transactionId). Alvo da restrição de unicidade no armazenamento." },
+    "transactionId": { "type": "string" },
+    "customerId": { "type": "string" },
+    "accountId": { "type": "string" },
+    "severity": { "enum": ["LOW", "MEDIUM", "HIGH", "CRITICAL"] },
+    "score": { "type": "integer", "minimum": 0, "maximum": 100 },
+    "status": { "enum": ["OPEN", "ACK", "CONFIRMED_FRAUD", "FALSE_POSITIVE"], "description": "Sempre OPEN no evento de criação." },
+    "triggeredRules": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["ruleId", "ruleVersion", "severity"],
+        "properties": {
+          "ruleId": { "type": "string" },
+          "ruleVersion": { "type": "integer", "minimum": 1 },
+          "name": { "type": "string" },
+          "severity": { "enum": ["LOW", "MEDIUM", "HIGH", "CRITICAL"] },
+          "reason": { "type": "string", "maxLength": 256, "description": "Explicação legível, sem PII." },
+          "evidence": {
+            "type": "object",
+            "additionalProperties": { "type": ["string", "number", "boolean"] },
+            "description": "Valores que dispararam a regra (ex.: count=7, windowMinutes=10)."
+          }
+        }
+      }
+    },
+    "transaction": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["transactionType", "channel", "amount"],
+      "description": "Resumo mascarado; o detalhe completo fica no armazenamento de eventos.",
+      "properties": {
+        "transactionType": { "type": "string" },
+        "channel": { "type": "string" },
+        "amount": {
+          "type": "object",
+          "required": ["minorUnits", "currency"],
+          "properties": { "minorUnits": { "type": "integer" }, "currency": { "type": "string" } }
+        },
+        "counterpartyIdToken": { "type": "string" },
+        "merchantCountry": { "type": "string" }
+      }
+    },
+    "transactionOccurredAt": { "type": "string", "format": "date-time" },
+    "ingestedAt": { "type": "string", "format": "date-time", "description": "Instante em que o barramento aceitou o evento (timestamp do broker; no HTTP, o recebimento na API). Início da medição de latência, inclui a fila (RNF-03)." },
+    "consumedAt": { "type": "string", "format": "date-time", "description": "Início do processamento pelo motor. consumedAt - ingestedAt = tempo de fila." },
+    "detectedAt": { "type": "string", "format": "date-time" },
+    "publishedAt": { "type": "string", "format": "date-time", "description": "Fim da medição de latência (RNF-03)." },
+    "latencyMs": { "type": "integer", "minimum": 0, "description": "publishedAt - ingestedAt." },
+    "degraded": { "type": "boolean", "description": "true se alguma dependência estava fora e regras com janela foram avaliadas de forma parcial." },
+    "degradedReasons": { "type": "array", "items": { "enum": ["WINDOW_STATE_UNAVAILABLE", "RULES_STALE", "LIST_UNAVAILABLE"] } },
+    "late": { "type": "boolean", "default": false, "description": "true se o evento chegou além do limite de atraso permitido (P-19)." },
+    "traceId": { "type": "string", "pattern": "^[0-9a-f]{32}$" }
+  }
+}

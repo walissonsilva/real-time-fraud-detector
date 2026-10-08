@@ -1,0 +1,31 @@
+{
+  "schemaVersion": "1.0",
+  "eventId": "7d2a9b04-1c8e-4e0b-a1f4-52c0e3a8b6d2",
+  "transactionId": "tx-20261003-1e55aa90",
+  "eventType": "TRANSACTION_DECLINED",
+  "occurredAt": "2026-10-03T14:21:07.412Z",
+  "producer": "pix-service",
+  "transactionType": "CARD_PURCHASE",
+  "channel": "POS",
+  "amount": {
+    "minorUnits": 1500000,
+    "currency": "BRL"
+  },
+  "customerId": "cus_8f3b1c",
+  "accountId": "acc_41d7e0",
+  "origin": {
+    "deviceIdHash": "dvc_c0ffee",
+    "geo": {
+      "latitude": -23.55,
+      "longitude": -46.63,
+      "country": "BR"
+    }
+  },
+  "traceId": "4bf92f3577b34da6a3ce929d0e0e4736",
+  "declineReason": "INSUFFICIENT_FUNDS",
+  "merchant": {
+    "id": "mrc_9912",
+    "mcc": "5411",
+    "country": "BR"
+  }
+}

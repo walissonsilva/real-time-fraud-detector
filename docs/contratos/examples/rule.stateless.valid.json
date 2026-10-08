@@ -1,0 +1,13 @@
+{
+  "ruleId": "high-value-new-counterparty",
+  "name": "Valor alto para contraparte nova",
+  "kind": "STATELESS",
+  "severity": "MEDIUM",
+  "weight": 25,
+  "mode": "SHADOW",
+  "params": {
+    "limitMinorUnits": 500000
+  },
+  "expression": "tx.amount.minorUnits >= params.limitMinorUnits && !has(tx.counterparty.firstSeenAt)",
+  "reason": "Valor alto para contraparte nunca usada"
+}

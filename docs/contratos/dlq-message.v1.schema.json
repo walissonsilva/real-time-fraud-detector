@@ -1,0 +1,78 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fraud-detector.internal/schemas/dlq-message.v1.schema.json",
+  "title": "DlqMessage v1",
+  "description": "Envelope de uma mensagem que não pôde ser processada ou entregue. Preserva a mensagem original para reprocessamento (redrive) idempotente. Retenção de 14 dias (P-21).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "dlqId", "stage", "reasonCode", "attempts", "firstFailedAt", "lastFailedAt", "original"],
+  "properties": {
+    "schemaVersion": { "type": "string", "pattern": "^1\\.[0-9]+$" },
+    "dlqId": { "type": "string", "format": "uuid" },
+    "stage": {
+      "enum": ["INGEST_VALIDATION", "RULE_EVALUATION", "PERSISTENCE", "ALERT_PUBLISH", "CHANNEL_DELIVERY"],
+      "description": "Etapa do pipeline onde a falha ocorreu."
+    },
+    "reasonCode": {
+      "enum": ["SCHEMA_INVALID", "DESERIALIZATION_ERROR", "UNSUPPORTED_VERSION", "RULE_EVALUATION_ERROR", "MAX_RETRIES_EXCEEDED", "PROVIDER_REJECTED", "DELIVERY_EXPIRED", "POISON_MESSAGE"]
+    },
+    "reasonDetail": {
+      "type": "string",
+      "maxLength": 1024,
+      "description": "Detalhe técnico para diagnóstico (ex.: caminho JSON do campo inválido). Nunca conter PII nem o payload."
+    },
+    "attempts": { "type": "integer", "minimum": 1 },
+    "firstFailedAt": { "type": "string", "format": "date-time" },
+    "lastFailedAt": { "type": "string", "format": "date-time" },
+    "redriveCount": { "type": "integer", "minimum": 0, "default": 0, "description": "Quantas vezes já foi reenviada ao fluxo normal." },
+    "correlation": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Identificadores de negócio extraídos quando possível (podem faltar se o payload for ilegível).",
+      "properties": {
+        "transactionId": { "type": "string" },
+        "alertId": { "type": "string", "format": "uuid" },
+        "deliveryId": { "type": "string" },
+        "channel": { "type": "string" }
+      }
+    },
+    "traceId": { "type": "string", "pattern": "^[0-9a-f]{32}$" },
+    "original": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["encoding", "payload"],
+      "description": "Mensagem original, sem alteração.",
+      "properties": {
+        "source": { "type": "string", "description": "Fila/tópico de origem." },
+        "partitionKey": { "type": "string" },
+        "contentType": { "type": "string", "default": "application/json" },
+        "encoding": { "enum": ["json", "base64"], "description": "base64 quando o payload não é JSON válido." },
+        "payload": { "description": "Objeto JSON quando encoding = json; string base64 quando encoding = base64." },
+        "headers": { "type": "object", "additionalProperties": { "type": "string" } }
+      }
+    }
+  },
+  "examples": [
+    {
+      "schemaVersion": "1.0",
+      "dlqId": "6c1f3a52-0b1e-4c53-8d51-3f6f5a9e2b10",
+      "stage": "INGEST_VALIDATION",
+      "reasonCode": "SCHEMA_INVALID",
+      "reasonDetail": "/declineReason: required when eventType = TRANSACTION_DECLINED",
+      "attempts": 1,
+      "firstFailedAt": "2026-10-03T14:21:07.530Z",
+      "lastFailedAt": "2026-10-03T14:21:07.530Z",
+      "redriveCount": 0,
+      "correlation": { "transactionId": "tx-20261003-9d41c7a2" },
+      "traceId": "4bf92f3577b34da6a3ce929d0e0e4736",
+      "original": {
+        "source": "transactions.v1",
+        "partitionKey": "acc_41d7e0",
+        "contentType": "application/json",
+        "encoding": "json",
+        "payload": { "schemaVersion": "1.0", "transactionId": "tx-20261003-9d41c7a2", "eventType": "TRANSACTION_DECLINED" },
+        "headers": { "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01" }
+      }
+    }
+  ]
+}

@@ -1,0 +1,16 @@
+{
+  "schemaVersion": "1.0",
+  "deliveryId": "52db168613f87aeb88b1563504a21f24b50d6fcb44d145f81da057b0988d6873",
+  "alertId": "b4d1c1de-5a0f-4a58-9f4c-0d0c8b6c0e11",
+  "channel": "ANTIFRAUD_QUEUE",
+  "audience": "ANTIFRAUD_TEAM",
+  "severity": "HIGH",
+  "customerId": "cus_8f3b1c",
+  "fallbackChannels": [
+    "ANTIFRAUD_WEBHOOK"
+  ],
+  "attempt": 1,
+  "createdAt": "2026-10-03T14:21:07.620Z",
+  "expiresAt": "2026-10-03T14:31:07.620Z",
+  "traceId": "4bf92f3577b34da6a3ce929d0e0e4736"
+}

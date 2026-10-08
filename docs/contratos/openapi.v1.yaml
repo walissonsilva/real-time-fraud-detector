@@ -1,0 +1,807 @@
+openapi: 3.1.0
+info:
+  title: Motor de Detecção de Transações Suspeitas — API v1
+  version: 1.0.0
+  description: |
+    Contrato HTTP do motor. Três superfícies com públicos e papéis distintos:
+
+    1. **Ingestão** (`/v1/transactions`) — adaptador opcional para produtores sem acesso ao barramento (RF-03, P-02). Resposta `202`: o evento foi aceito, **não** avaliado.
+    2. **Gestão de regras e canais** (`/v1/rules`, `/v1/channels`, `/v1/routing-policy`) — mudanças sem redeploy (RF-20 a RF-27, RF-33, RF-53).
+    3. **Alertas** (`/v1/alerts`) — consulta e atualização de status pelo time antifraude (RF-38).
+
+    Convenções: JSON UTF-8; datas RFC 3339 em UTC; valores monetários em menor unidade da moeda; identificadores são tokens opacos (sem PII); erros em `application/problem+json` (RFC 9457); concorrência otimista com `ETag`/`If-Match`; `traceparent` (W3C) aceito e propagado.
+servers:
+  - url: https://fraud-detector.internal
+    description: Rede corporativa (TLS 1.2+; mTLS entre serviços)
+security:
+  - bearerAuth: []
+tags:
+  - name: Ingestão
+  - name: Regras
+  - name: Canais
+  - name: Alertas
+  - name: Operação
+
+paths:
+  /v1/transactions:
+    post:
+      tags: [Ingestão]
+      operationId: ingestTransaction
+      summary: Enviar um evento de transação
+      description: |
+        Valida o schema e publica no pipeline. Idempotente por `transactionId` + `eventType`: reenvio devolve `202` com `duplicate: true`.
+        Tamanho máximo do corpo: 16 KiB. Papel exigido: `producer` (escopo `transactions:write`).
+      security:
+        - bearerAuth: [transactions:write]
+      parameters:
+        - $ref: '#/components/parameters/Traceparent'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: './transaction-event.v1.schema.json'
+      responses:
+        '202':
+          description: Aceito para processamento.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [transactionId, ingestedAt, duplicate]
+                properties:
+                  transactionId: { type: string }
+                  ingestedAt: { type: string, format: date-time, description: Instante do aceite na API; início da medição de latência (a fila começa aqui) }
+                  duplicate: { type: boolean }
+        '400': { $ref: '#/components/responses/InvalidRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '503': { $ref: '#/components/responses/Unavailable' }
+
+  /v1/rules:
+    get:
+      tags: [Regras]
+      operationId: listRules
+      summary: Listar regras (versão corrente de cada uma)
+      security:
+        - bearerAuth: [rules:read]
+      parameters:
+        - name: status
+          in: query
+          schema: { $ref: '#/components/schemas/RuleStatus' }
+        - name: kind
+          in: query
+          schema: { enum: [STATELESS, WINDOWED] }
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: Página de regras.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Page'
+                  - type: object
+                    properties:
+                      items:
+                        type: array
+                        items: { $ref: '#/components/schemas/RuleVersion' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [Regras]
+      operationId: createRule
+      summary: Criar regra (versão 1 em DRAFT)
+      description: Papel `fraud-rules-admin`. A expressão é validada em sintaxe, profundidade e custo antes de aceitar (RF-26).
+      security:
+        - bearerAuth: [rules:write]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: './rule.v1.schema.json' }
+      responses:
+        '201':
+          description: Criada.
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+            Location: { schema: { type: string } }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RuleVersion' }
+        '400': { $ref: '#/components/responses/InvalidRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/RuleRejected' }
+
+  /v1/rules/{ruleId}:
+    parameters:
+      - $ref: '#/components/parameters/RuleId'
+    get:
+      tags: [Regras]
+      operationId: getRule
+      summary: Consultar a versão ACTIVE (ou a mais recente, se não houver ACTIVE)
+      security:
+        - bearerAuth: [rules:read]
+      responses:
+        '200':
+          description: Regra.
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RuleVersion' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      tags: [Regras]
+      operationId: updateRule
+      summary: Editar regra (cria nova versão DRAFT; versões existentes são imutáveis)
+      security:
+        - bearerAuth: [rules:write]
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: './rule.v1.schema.json' }
+      responses:
+        '201':
+          description: Nova versão criada.
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RuleVersion' }
+        '400': { $ref: '#/components/responses/InvalidRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '412': { $ref: '#/components/responses/PreconditionFailed' }
+        '422': { $ref: '#/components/responses/RuleRejected' }
+
+  /v1/rules/{ruleId}/versions:
+    parameters:
+      - $ref: '#/components/parameters/RuleId'
+    get:
+      tags: [Regras]
+      operationId: listRuleVersions
+      summary: Histórico de versões
+      security:
+        - bearerAuth: [rules:read]
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: Versões, da mais recente para a mais antiga.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Page'
+                  - type: object
+                    properties:
+                      items:
+                        type: array
+                        items: { $ref: '#/components/schemas/RuleVersion' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /v1/rules/{ruleId}/versions/{version}/submit:
+    parameters:
+      - $ref: '#/components/parameters/RuleId'
+      - $ref: '#/components/parameters/Version'
+    post:
+      tags: [Regras]
+      operationId: submitRuleVersion
+      summary: Enviar para revisão (DRAFT → IN_REVIEW)
+      security:
+        - bearerAuth: [rules:write]
+      responses:
+        '200': { $ref: '#/components/responses/RuleVersionOk' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /v1/rules/{ruleId}/versions/{version}/approve:
+    parameters:
+      - $ref: '#/components/parameters/RuleId'
+      - $ref: '#/components/parameters/Version'
+    post:
+      tags: [Regras]
+      operationId: approveRuleVersion
+      summary: Aprovar e publicar (IN_REVIEW → ACTIVE)
+      description: |
+        Papel `fraud-rules-approver`. **Autor ≠ aprovador** (P-34): `403` se o chamador criou a versão.
+        A versão ACTIVE anterior passa a ARCHIVED. As instâncias recarregam em até 30 s (RF-23).
+      security:
+        - bearerAuth: [rules:approve]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                comment: { type: string, maxLength: 500 }
+      responses:
+        '200': { $ref: '#/components/responses/RuleVersionOk' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /v1/rules/{ruleId}/versions/{version}/reject:
+    parameters:
+      - $ref: '#/components/parameters/RuleId'
+      - $ref: '#/components/parameters/Version'
+    post:
+      tags: [Regras]
+      operationId: rejectRuleVersion
+      summary: Rejeitar (IN_REVIEW → DRAFT) com motivo
+      security:
+        - bearerAuth: [rules:approve]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [comment]
+              properties:
+                comment: { type: string, minLength: 1, maxLength: 500 }
+      responses:
+        '200': { $ref: '#/components/responses/RuleVersionOk' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /v1/rules/{ruleId}/rollback:
+    parameters:
+      - $ref: '#/components/parameters/RuleId'
+    post:
+      tags: [Regras]
+      operationId: rollbackRule
+      summary: Reverter para uma versão anterior com um comando
+      description: Reativa `toVersion` como nova versão ACTIVE (cópia imutável, nova numeração) sem passar por revisão; exige papel `fraud-rules-admin` e fica na trilha de auditoria (RF-22).
+      security:
+        - bearerAuth: [rules:write]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [toVersion, reason]
+              properties:
+                toVersion: { type: integer, minimum: 1 }
+                reason: { type: string, minLength: 1, maxLength: 500 }
+      responses:
+        '200': { $ref: '#/components/responses/RuleVersionOk' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /v1/rules/{ruleId}/disable:
+    parameters:
+      - $ref: '#/components/parameters/RuleId'
+    post:
+      tags: [Regras]
+      operationId: disableRule
+      summary: Kill switch — desativar a regra imediatamente (RF-53)
+      description: Efeito em até 30 s; não exige revisão. Reativar é um novo `approve`/`rollback`.
+      security:
+        - bearerAuth: [rules:write]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reason]
+              properties:
+                reason: { type: string, minLength: 1, maxLength: 500 }
+      responses:
+        '200': { $ref: '#/components/responses/RuleVersionOk' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /v1/rules:simulate:
+    post:
+      tags: [Regras]
+      operationId: simulateRule
+      summary: Simular regra candidata contra eventos de amostra (dry-run, RF-25)
+      description: Não persiste nada nem gera alerta. Regras com janela usam estado vazio, a menos que `windowSeed` seja informado.
+      security:
+        - bearerAuth: [rules:read]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [rule, events]
+              properties:
+                rule: { $ref: './rule.v1.schema.json' }
+                events:
+                  type: array
+                  minItems: 1
+                  maxItems: 100
+                  items: { $ref: './transaction-event.v1.schema.json' }
+                windowSeed:
+                  type: object
+                  description: Valor inicial do agregado por evento (índice → valor), para testar regras com janela.
+                  additionalProperties: { type: number }
+      responses:
+        '200':
+          description: Resultado por evento.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [results]
+                properties:
+                  results:
+                    type: array
+                    items:
+                      type: object
+                      required: [transactionId, triggered, evaluationMicros]
+                      properties:
+                        transactionId: { type: string }
+                        triggered: { type: boolean }
+                        reason: { type: string }
+                        evidence:
+                          type: object
+                          additionalProperties: { type: [string, number, boolean] }
+                        evaluationMicros: { type: integer, minimum: 0 }
+        '400': { $ref: '#/components/responses/InvalidRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/RuleRejected' }
+
+  /v1/channels/{channelId}/state:
+    parameters:
+      - name: channelId
+        in: path
+        required: true
+        schema: { enum: [ANTIFRAUD_QUEUE, ANTIFRAUD_WEBHOOK, PUSH, SMS, EMAIL] }
+    put:
+      tags: [Canais]
+      operationId: setChannelState
+      summary: Kill switch de canal (RF-53)
+      description: Canal desligado deixa de receber entregas; os pedidos aguardam na fila de entrega ou seguem o fallback.
+      security:
+        - bearerAuth: [channels:admin]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [enabled, reason]
+              properties:
+                enabled: { type: boolean }
+                reason: { type: string, minLength: 1, maxLength: 500 }
+      responses:
+        '200':
+          description: Estado aplicado.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [channelId, enabled, changedBy, changedAt]
+                properties:
+                  channelId: { type: string }
+                  enabled: { type: boolean }
+                  changedBy: { type: string }
+                  changedAt: { type: string, format: date-time }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /v1/routing-policy:
+    get:
+      tags: [Canais]
+      operationId: getRoutingPolicy
+      summary: Política de canais por severidade (RF-33)
+      security:
+        - bearerAuth: [rules:read]
+      responses:
+        '200':
+          description: Política vigente.
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RoutingPolicy' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    put:
+      tags: [Canais]
+      operationId: putRoutingPolicy
+      summary: Substituir a política de canais
+      security:
+        - bearerAuth: [channels:admin]
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RoutingPolicy' }
+      responses:
+        '200':
+          description: Política aplicada.
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RoutingPolicy' }
+        '400': { $ref: '#/components/responses/InvalidRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '412': { $ref: '#/components/responses/PreconditionFailed' }
+
+  /v1/alerts:
+    get:
+      tags: [Alertas]
+      operationId: listAlerts
+      summary: Consultar alertas
+      description: Papel `fraud-analyst`. Também atende pedidos de titular por `customerId` (RNF-27).
+      security:
+        - bearerAuth: [alerts:read]
+      parameters:
+        - name: status
+          in: query
+          schema: { enum: [OPEN, ACK, CONFIRMED_FRAUD, FALSE_POSITIVE] }
+        - name: severity
+          in: query
+          schema: { enum: [LOW, MEDIUM, HIGH, CRITICAL] }
+        - name: customerId
+          in: query
+          schema: { type: string }
+        - name: transactionId
+          in: query
+          schema: { type: string }
+        - name: from
+          in: query
+          description: Limite inferior de `publishedAt` (inclusive).
+          schema: { type: string, format: date-time }
+        - name: to
+          in: query
+          description: Limite superior de `publishedAt` (exclusivo).
+          schema: { type: string, format: date-time }
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: Página de alertas, mais recentes primeiro.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Page'
+                  - type: object
+                    properties:
+                      items:
+                        type: array
+                        items: { $ref: './fraud-alert.v1.schema.json' }
+        '400': { $ref: '#/components/responses/InvalidRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /v1/alerts/{alertId}:
+    parameters:
+      - name: alertId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    get:
+      tags: [Alertas]
+      operationId: getAlert
+      summary: Consultar um alerta
+      security:
+        - bearerAuth: [alerts:read]
+      responses:
+        '200':
+          description: Alerta.
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: './fraud-alert.v1.schema.json' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /v1/alerts/{alertId}/status:
+    parameters:
+      - name: alertId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    put:
+      tags: [Alertas]
+      operationId: setAlertStatus
+      summary: Atualizar o status do alerta
+      description: |
+        Transições: `OPEN → ACK → CONFIRMED_FRAUD | FALSE_POSITIVE`; `OPEN → CONFIRMED_FRAUD | FALSE_POSITIVE` direto é permitido. Estados finais não voltam. Registra quem e quando na auditoria (RNF-28).
+      security:
+        - bearerAuth: [alerts:write]
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status]
+              properties:
+                status: { enum: [ACK, CONFIRMED_FRAUD, FALSE_POSITIVE] }
+                note: { type: string, maxLength: 500, description: Sem PII. }
+      responses:
+        '200':
+          description: Status atualizado.
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: './fraud-alert.v1.schema.json' }
+        '400': { $ref: '#/components/responses/InvalidRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '412': { $ref: '#/components/responses/PreconditionFailed' }
+
+  /health/live:
+    get:
+      tags: [Operação]
+      operationId: healthLive
+      summary: Liveness — o processo está de pé
+      security: []
+      responses:
+        '200':
+          description: Vivo.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Health' }
+  /health/ready:
+    get:
+      tags: [Operação]
+      operationId: healthReady
+      summary: Readiness — falha se uma dependência crítica estiver fora (RF-50)
+      description: Dependência crítica = broker e armazenamento de alertas. Falha em regras, estado de janelas ou provedores **não** derruba o readiness (degradação, RF-40 a RF-42), apenas aparece em `checks`.
+      security: []
+      responses:
+        '200':
+          description: Pronto.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Health' }
+        '503':
+          description: Não pronto.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Health' }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        OAuth2 client credentials; JWT de curta duração (≤ 15 min), emitido por IdP corporativo, sobre canal com mTLS (RNF-22).
+        Mapeamento papel → escopos:
+        `producer` → transactions:write ·
+        `fraud-rules-admin` → rules:read, rules:write, channels:admin ·
+        `fraud-rules-approver` → rules:read, rules:approve ·
+        `fraud-analyst` → alerts:read, alerts:write.
+
+  parameters:
+    Traceparent:
+      name: traceparent
+      in: header
+      required: false
+      description: W3C Trace Context.
+      schema: { type: string, pattern: '^00-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}$' }
+    RuleId:
+      name: ruleId
+      in: path
+      required: true
+      schema: { type: string, pattern: '^[a-z0-9][a-z0-9-]{2,62}$' }
+    Version:
+      name: version
+      in: path
+      required: true
+      schema: { type: integer, minimum: 1 }
+    IfMatch:
+      name: If-Match
+      in: header
+      required: true
+      description: ETag da representação lida. Evita sobrescrita concorrente.
+      schema: { type: string }
+    Limit:
+      name: limit
+      in: query
+      schema: { type: integer, minimum: 1, maximum: 200, default: 50 }
+    Cursor:
+      name: cursor
+      in: query
+      description: Cursor opaco devolvido em `nextCursor`.
+      schema: { type: string }
+
+  headers:
+    ETag:
+      description: Validador da representação.
+      schema: { type: string }
+    RetryAfter:
+      description: Segundos até nova tentativa.
+      schema: { type: integer, minimum: 0 }
+
+  schemas:
+    RuleStatus:
+      enum: [DRAFT, IN_REVIEW, ACTIVE, ARCHIVED, DISABLED]
+      description: |
+        Ciclo de vida (RF-22): DRAFT → IN_REVIEW → ACTIVE → ARCHIVED.
+        DISABLED = desligada por kill switch (RF-53); reversível apenas por novo approve/rollback.
+    RuleVersion:
+      description: Regra (Rule v1) com metadados de versão e ciclo de vida.
+      allOf:
+        - $ref: './rule.v1.schema.json'
+        - type: object
+          required: [version, status, createdBy, createdAt]
+          properties:
+            version: { type: integer, minimum: 1 }
+            status: { $ref: '#/components/schemas/RuleStatus' }
+            createdBy: { type: string, description: Identidade do autor. }
+            createdAt: { type: string, format: date-time }
+            approvedBy: { type: string }
+            approvedAt: { type: string, format: date-time }
+            activatedAt: { type: string, format: date-time }
+            changeNote: { type: string, maxLength: 500 }
+    RoutingPolicy:
+      type: object
+      required: [rules]
+      properties:
+        rules:
+          type: array
+          minItems: 1
+          description: Avaliadas em ordem; vale a primeira que casar. A última deve ser um padrão (`when` vazio).
+          items:
+            type: object
+            required: [channels]
+            properties:
+              when:
+                type: object
+                additionalProperties: false
+                properties:
+                  minSeverity: { enum: [LOW, MEDIUM, HIGH, CRITICAL] }
+                  ruleIds: { type: array, items: { type: string } }
+                  transactionTypes: { type: array, items: { type: string } }
+              channels:
+                type: array
+                minItems: 1
+                items:
+                  type: object
+                  required: [channel]
+                  properties:
+                    channel: { enum: [ANTIFRAUD_QUEUE, ANTIFRAUD_WEBHOOK, PUSH, SMS, EMAIL] }
+                    fallback: { type: array, items: { enum: [ANTIFRAUD_QUEUE, ANTIFRAUD_WEBHOOK, PUSH, SMS, EMAIL] } }
+        customerNotification:
+          type: object
+          description: Controle de fadiga (RF-37).
+          properties:
+            minIntervalSeconds: { type: integer, minimum: 0, default: 300 }
+    Page:
+      type: object
+      required: [items]
+      properties:
+        items: { type: array, items: {} }
+        nextCursor: { type: [string, 'null'] }
+    Health:
+      type: object
+      required: [status]
+      properties:
+        status: { enum: [UP, DEGRADED, DOWN] }
+        checks:
+          type: object
+          additionalProperties:
+            type: object
+            required: [status]
+            properties:
+              status: { enum: [UP, DEGRADED, DOWN] }
+              critical: { type: boolean }
+    Problem:
+      type: object
+      description: RFC 9457.
+      required: [type, title, status]
+      properties:
+        type: { type: string, description: 'URI estável do tipo de erro, ex.: urn:fraud:error:schema-invalid.' }
+        title: { type: string }
+        status: { type: integer }
+        detail: { type: string, description: Sem PII e sem eco do payload. }
+        instance: { type: string }
+        traceId: { type: string }
+        errors:
+          type: array
+          items:
+            type: object
+            required: [pointer, message]
+            properties:
+              pointer: { type: string, description: JSON Pointer do campo. }
+              message: { type: string }
+
+  responses:
+    RuleVersionOk:
+      description: Versão da regra após a transição.
+      headers:
+        ETag: { $ref: '#/components/headers/ETag' }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/RuleVersion' }
+    InvalidRequest:
+      description: Corpo ou parâmetros inválidos (`urn:fraud:error:schema-invalid`).
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    Unauthorized:
+      description: Credencial ausente, inválida ou expirada.
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    Forbidden:
+      description: Autenticado, mas sem o papel/escopo exigido (ou violação de autor ≠ aprovador).
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    NotFound:
+      description: Recurso inexistente.
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    Conflict:
+      description: Transição de estado inválida ou recurso já existente.
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    PreconditionFailed:
+      description: '`If-Match` não confere com o estado atual; releia e tente de novo.'
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    PayloadTooLarge:
+      description: Corpo acima do limite.
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    RuleRejected:
+      description: Expressão rejeitada na validação (sintaxe, profundidade ou custo; RF-26) (`urn:fraud:error:rule-rejected`).
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    TooManyRequests:
+      description: Limite de taxa excedido.
+      headers:
+        Retry-After: { $ref: '#/components/headers/RetryAfter' }
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    Unavailable:
+      description: Dependência crítica indisponível; o produtor deve tentar de novo com backoff.
+      headers:
+        Retry-After: { $ref: '#/components/headers/RetryAfter' }
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
