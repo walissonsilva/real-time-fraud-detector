@@ -1,0 +1,6 @@
+# cp backend.hcl.example backend.hcl e troque <ACCOUNT_ID> (saída `bucket` do bootstrap)
+bucket       = "fraud-detector-tfstate-<ACCOUNT_ID>"
+key          = "production/terraform.tfstate"
+region       = "us-east-1"
+encrypt      = true
+use_lockfile = true

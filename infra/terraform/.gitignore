@@ -1,0 +1,11 @@
+.terraform/
+*.tfstate
+*.tfstate.*
+crash.log
+backend.hcl
+# valores locais/sensíveis (ex.: alert_email)
+*.auto.tfvars
+secrets.tfvars
+*.plan
+plan.txt
+apply.txt
