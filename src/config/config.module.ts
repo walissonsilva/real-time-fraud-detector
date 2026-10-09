@@ -13,6 +13,8 @@ export interface AppConfig {
     customerChannelDlq: string;
   };
   snsAlertsTopic: string;
+  /** ARN do tópico; quando definido, dispensa o CreateTopic (ex.: AWS, onde o Terraform cria o tópico). */
+  snsAlertsTopicArn?: string;
   snsPublishTimeoutMs: number;
   outboxRelay: { intervalMs: number; minAgeMs: number; batchSize: number };
   rulesConfigPath: string;
@@ -62,6 +64,7 @@ export function loadConfig(): AppConfig {
       customerChannelDlq: optional('SQS_CHANNEL_CUSTOMER_DLQ', 'alert-deliveries-customer-push-dlq.fifo'),
     },
     snsAlertsTopic: optional('SNS_ALERTS_TOPIC', 'alerts.fifo'),
+    snsAlertsTopicArn: process.env.SNS_ALERTS_TOPIC_ARN || undefined,
     snsPublishTimeoutMs: int('SNS_PUBLISH_TIMEOUT_MS', 2000),
     outboxRelay: {
       intervalMs: int('OUTBOX_RELAY_INTERVAL_MS', 1000),

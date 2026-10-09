@@ -38,6 +38,19 @@ describe('SnsEventBus', () => {
     });
   });
 
+  it('usa o ARN configurado sem chamar CreateTopic', async () => {
+    const send = jest.fn(async () => ({}));
+    const arn = 'arn:aws:sns:us-east-1:123456789012:alerts.fifo';
+    const bus = new SnsEventBus({ send } as unknown as SNSClient, {
+      snsAlertsTopic: 'alerts.fifo',
+      snsAlertsTopicArn: arn,
+      snsPublishTimeoutMs: 200,
+    });
+    await bus.publishAlert(alert);
+    expect(send).toHaveBeenCalledTimes(1);
+    expect((send.mock.calls[0] as unknown as [PublishCommand])[0].input.TopicArn).toBe(arn);
+  });
+
   it('retenta falhas transitórias e propaga erro ao esgotar', async () => {
     const send = jest.fn(async (cmd: unknown) => {
       if (cmd instanceof PublishCommand) throw new Error('indisponível');

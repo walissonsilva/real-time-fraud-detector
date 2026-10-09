@@ -15,7 +15,7 @@ export class SnsEventBus {
 
   constructor(
     @Inject(SNS_CLIENT) private readonly sns: SNSClient,
-    @Inject(APP_CONFIG) private readonly config: Pick<AppConfig, 'snsAlertsTopic' | 'snsPublishTimeoutMs'>,
+    @Inject(APP_CONFIG) private readonly config: Pick<AppConfig, 'snsAlertsTopic' | 'snsAlertsTopicArn' | 'snsPublishTimeoutMs'>,
   ) {}
 
   async publishAlert(alert: FraudAlert, traceparent?: string): Promise<void> {
@@ -41,9 +41,13 @@ export class SnsEventBus {
     );
   }
 
-  /** `CreateTopic` é idempotente e devolve o ARN do tópico FIFO existente (criado pelo init-aws.sh). */
+  /**
+   * Usa `SNS_ALERTS_TOPIC_ARN` quando definido (AWS: tópico criado pelo Terraform, sem `sns:CreateTopic`).
+   * Senão, `CreateTopic` é idempotente e devolve o ARN do tópico FIFO existente (criado pelo init-aws.sh).
+   */
   private async resolveTopicArn(): Promise<string> {
     if (this.topicArn) return this.topicArn;
+    if (this.config.snsAlertsTopicArn) return (this.topicArn = this.config.snsAlertsTopicArn);
     const { TopicArn } = await this.sns.send(
       new CreateTopicCommand({
         Name: this.config.snsAlertsTopic,
