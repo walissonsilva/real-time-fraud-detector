@@ -205,6 +205,12 @@ Provider AWS ~> 5.x, `default_tags` (Project, Env=production, ManagedBy=terrafor
 ### 2026-10-09 — scripts e skills de ciclo de vida
 - Criados `infra/terraform/scripts/{lib,up,pause,resume,destroy}.sh` e skills `/aws-up`, `/aws-pause`, `/aws-resume`, `/aws-destroy` (`disable-model-invocation`, confirmação obrigatória).
 - Novas variáveis Terraform: `ephemeral` (lean=true, full=false) e `start_service` (permite migrar antes de subir o serviço). Com `ephemeral`: secrets com `recovery_window_in_days = 0`, `skip_final_snapshot = true`, ECR `force_delete`.
-- **Pendente**: o plano com essas mudanças (6 alterações in-place, nenhuma recriação) ainda NÃO foi aplicado ao ambiente lean; o `destroy` só funciona em ciclo repetido depois disso. O ciclo pause/resume e destroy/up ainda não foi exercitado de verdade (só `--plan-only`: up sem erro, destroy = 100 recursos).
+- **Aplicado** em 2026-10-09 (5 alterações in-place, 0 recriações; serviço seguiu 3/3 tasks e RDS `available`). Antes estava pendente; o `destroy` só funciona em ciclo repetido depois disso. O ciclo pause/resume e destroy/up ainda não foi exercitado de verdade (só `--plan-only`: up sem erro, destroy = 100 recursos).
 - O apply direto com `-auto-approve` foi bloqueado pelo classificador do Claude Code; os scripts usam plan salvo + apply do arquivo.
 - Observação: `aws_db_parameter_group.main` segue mostrando diff cosmético de `apply_method` a cada plan.
+
+### 2026-10-09 — teste de pause/resume (lean)
+- `pause.sh`: ECS 0/0, autoscaling mín. 0, RDS parado — ~40 s. `resume.sh` (RDS ainda "stopping" no início): aguardou parar, religou o RDS, restaurou autoscaling 3–6 e 3/3 tasks HEALTHY.
+- **Bug corrigido**: o AWS CLI não tem waiter `db-instance-stopped`; `lib.sh` agora usa `wait_db_status` (polling). Lição: rodar scripts com `set -o pipefail` ao encadear com `tail`, senão a falha vira exit 0.
+- Smoke test após o ciclo: alerta gerado e entregue nos dois canais.
+- Ainda não exercitado: ciclo destroy + up completo.

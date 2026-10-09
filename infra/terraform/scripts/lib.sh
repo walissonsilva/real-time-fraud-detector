@@ -50,12 +50,22 @@ tf_init() {
 
 db_status() { aws rds describe-db-instances --db-instance-identifier "$DB_ID" --query 'DBInstances[0].DBInstanceStatus' --output text 2>/dev/null || echo "absent"; }
 
+# O AWS CLI não tem waiter para "stopped": poll até o status desejado (timeout ~30 min).
+wait_db_status() { # <status>
+  local i s
+  for i in $(seq 1 180); do
+    s="$(db_status)"; [ "$s" = "$1" ] && return 0
+    sleep 10
+  done
+  die "RDS não chegou a '$1' (último estado: $s)"
+}
+
 # Garante o RDS disponível (o Terraform e o ECS dependem dele). Religa se estiver parado.
 ensure_rds_available() {
   local s; s="$(db_status)"
   case "$s" in
     absent | available) return 0 ;;
-    stopping) log "RDS parando; aguardando"; aws rds wait db-instance-stopped --db-instance-identifier "$DB_ID"; ensure_rds_available ;;
+    stopping) log "RDS parando; aguardando"; wait_db_status stopped; ensure_rds_available ;;
     stopped) log "RDS parado; iniciando (alguns minutos)"; aws rds start-db-instance --db-instance-identifier "$DB_ID" >/dev/null; aws rds wait db-instance-available --db-instance-identifier "$DB_ID" ;;
     *) log "RDS em estado '$s'; aguardando ficar disponível"; aws rds wait db-instance-available --db-instance-identifier "$DB_ID" ;;
   esac
