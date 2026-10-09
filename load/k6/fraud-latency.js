@@ -31,6 +31,7 @@ const DURATION_S = Number(__ENV.DURATION_SECONDS || 600);
 const DRAIN_S = Number(__ENV.DRAIN_SECONDS || 30);
 const ALERT_RATE = Number(__ENV.ALERT_RATE || 0.01);
 const ACCOUNTS = Number(__ENV.ACCOUNTS || 500);
+const MAX_VUS = Number(__ENV.MAX_VUS || Math.max(100, RATE * 2));
 const P95_MS = Number(__ENV.P95_MS || 500);
 const P99_MS = Number(__ENV.P99_MS || 1000);
 
@@ -50,7 +51,7 @@ export const options = {
       timeUnit: '1s',
       duration: `${DURATION_S}s`,
       preAllocatedVUs: Math.max(20, Math.ceil(RATE / 2)),
-      maxVUs: Math.max(100, RATE * 2),
+      maxVUs: MAX_VUS,
       exec: 'produce',
     },
     consumer: {
@@ -62,6 +63,7 @@ export const options = {
   },
   thresholds: {
     alert_e2e_latency_ms: [`p(95)<${P95_MS}`, `p(99)<${P99_MS}`],
+    alert_service_latency_ms: [`p(95)<${P95_MS}`, `p(99)<${P99_MS}`],
     send_errors: ['rate<0.001'],
   },
 };
@@ -243,6 +245,8 @@ export function handleSummary(summary) {
   const received = count('alerts_received');
   const lost = Math.max(0, expected - received);
   const lat = summary.metrics.alert_e2e_latency_ms ? summary.metrics.alert_e2e_latency_ms.values : {};
+  const svc = summary.metrics.alert_service_latency_ms ? summary.metrics.alert_service_latency_ms.values : {};
+  const dropped = count('dropped_iterations');
   const fmt = (v) => (v === undefined ? 'n/a' : `${v.toFixed(1)} ms`);
   const text = [
     '',
@@ -250,7 +254,9 @@ export function handleSummary(summary) {
     `eventos enviados : ${count('events_sent')} (alvo ${RATE}/s, taxa de suspeitos ${(ALERT_RATE * 100).toFixed(2)}%)`,
     `alertas esperados: ${expected}`,
     `alertas recebidos: ${received}${lost ? ` (FALTAM ${lost})` : ''}`,
-    `latência e2e     : p50 ${fmt(lat['med'])} | p95 ${fmt(lat['p(95)'])} | p99 ${fmt(lat['p(99)'])} | max ${fmt(lat['max'])}`,
+    `iter. descartadas: ${dropped}${dropped ? ' (VUs esgotados: aumente MAX_VUS ou o alvo não foi cumprido)' : ''}`,
+    `latência serviço : p50 ${fmt(svc['med'])} | p95 ${fmt(svc['p(95)'])} | p99 ${fmt(svc['p(99)'])} | max ${fmt(svc['max'])}  (ingestedAt→publishedAt, relógio do serviço)`,
+    `latência e2e (k6): p50 ${fmt(lat['med'])} | p95 ${fmt(lat['p(95)'])} | p99 ${fmt(lat['p(99)'])} | max ${fmt(lat['max'])}`,
     '',
   ].join('\n');
   const report = textSummary(summary, { indent: ' ', enableColors: false }) + text;

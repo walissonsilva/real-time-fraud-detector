@@ -14,10 +14,10 @@ npm run load:k6                                              # 100 TPS, 10 min, 
 RATE=5 DURATION_SECONDS=30 ALERT_RATE=0.2 npm run load:k6    # smoke
 ```
 
-Variáveis: `RATE`, `DURATION_SECONDS`, `DRAIN_SECONDS` (espera final por alertas, padrão 30), `ALERT_RATE`, `ACCOUNTS` (padrão 500), `P95_MS` / `P99_MS` (limiares), `AWS_ENDPOINT` (padrão `http://host.docker.internal:4566`: o k6 roda em container e alcança o LocalStack publicado no host, o mesmo que o app acessa em `localhost:4566`).
+Variáveis: `RATE`, `DURATION_SECONDS`, `DRAIN_SECONDS` (espera final por alertas, padrão 30), `ALERT_RATE`, `MAX_VUS` (teto de VUs do produtor; padrão `max(100, 2×RATE)`; necessários ≈ RATE × tempo de resposta do envio, e o resumo mostra as iterações descartadas se faltarem), `ACCOUNTS` (padrão 500), `P95_MS` / `P99_MS` (limiares), `AWS_ENDPOINT` (padrão `http://host.docker.internal:4566`: o k6 roda em container e alcança o LocalStack publicado no host, o mesmo que o app acessa em `localhost:4566`).
 
 ## Como ler
 - `alert_e2e_latency_ms`: recebimento do alerta menos `transactionOccurredAt` (carimbado no envio). Inclui fila SQS, motor, publicação e fan-out SNS→SQS.
-- `alert_service_latency_ms`: `latencyMs` do próprio alerta (`publishedAt - ingestedAt`).
+- `alert_service_latency_ms`: `latencyMs` do próprio alerta (`publishedAt - ingestedAt`), medido pelo serviço e imune a saltos do relógio do k6. É a referência do SLO do serviço; o e2e inclui também o fan-out SNS→SQS. Os dois têm thresholds.
 - O resumo final compara alertas esperados × recebidos. Cada execução grava `.txt`, `.json` e `.html` (k6-reporter) em `load/k6/results/<timestamp>` (ignorado pelo git).
 - Rodando contra LocalStack, o resultado vale como regressão, não como capacidade real da AWS.
