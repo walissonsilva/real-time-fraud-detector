@@ -14,6 +14,7 @@ Resposta ao case **CE 1** (take-home de 7 dias, defesa ao vivo). Esta pasta guar
 | 5 | [adr/](adr/README.md) | ADR-01 a 05: mensageria, dedupe e estado de janela, motor de regras, armazenamento, degradação | proposto |
 | 6 | [pesquisa-taxa-de-alertas.md](pesquisa-taxa-de-alertas.md) | Registro da pesquisa pública sobre taxa de fraude e de alerta (base do P-16) | pronto |
 | 7 | [04-plano-implementacao.md](04-plano-implementacao.md) | Plano de 6 dias (07–12/10/2026), critérios de conclusão, cortes e roteiro da defesa | plano v0.1 |
+| 8 | [fluxo-processamento.md](fluxo-processamento.md) | Fluxo implementado, da transação ao alerta entregue, com diagramas por etapa | pronto |
 
 ## Escopo em fases (P-08)
 

@@ -12,6 +12,7 @@ const errorCodeOf = (err: unknown): string => {
 
 /**
  * Publica uma linha do outbox no barramento e a marca como publicada.
+ * O `publishedAt`/`latencyMs` do corpo marcam o envio; a métrica `alert_latency_ms` e o `published_at` do banco usam o aceite.
  * Nunca lança: falhas ficam registradas no outbox para o relay tentar de novo (D-05).
  * Devolve `true` se o SNS aceitou a mensagem.
  */
@@ -30,11 +31,13 @@ export class OutboxEntryPublisherService {
   async publish(entry: OutboxEntry): Promise<boolean> {
     const { alerts, bus, logger, metrics } = this;
     const { alert } = entry;
-    const publishedAt = this.now();
+    // Carimbo do corpo: momento do envio ao barramento (o contrato exige o campo na própria mensagem,
+    // então ele não pode conter o instante do aceite, que só existe depois do publish).
+    const sentAt = this.now();
     const stamped: PublishableFraudAlert = {
       ...alert,
-      publishedAt: publishedAt.toISOString(),
-      latencyMs: Math.max(0, publishedAt.getTime() - new Date(alert.ingestedAt).getTime()),
+      publishedAt: sentAt.toISOString(),
+      latencyMs: Math.max(0, sentAt.getTime() - new Date(alert.ingestedAt).getTime()),
     };
 
     try {
@@ -52,10 +55,12 @@ export class OutboxEntryPublisherService {
       return false;
     }
 
+    // Instante do aceite pelo SNS (inclui timeout e retentativas do publish): base do SLO medido e do `published_at` no banco.
+    const acceptedAt = this.now();
     metrics.increment('outbox_publish_total', { result: 'success' });
-    metrics.observe('alert_latency_ms', stamped.latencyMs);
+    metrics.observe('alert_latency_ms', Math.max(0, acceptedAt.getTime() - new Date(alert.ingestedAt).getTime()));
     try {
-      await alerts.markPublished(alert.alertId, publishedAt);
+      await alerts.markPublished(alert.alertId, acceptedAt);
     } catch (err) {
       // Publicado, mas a marcação falhou: o relay republica e o SNS FIFO absorve a duplicata.
       logger.warn('alerta publicado, mas a marcação no outbox falhou', { alertId: alert.alertId, errorCode: errorCodeOf(err) });

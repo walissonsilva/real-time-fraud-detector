@@ -58,7 +58,7 @@
     "ingestedAt": { "type": "string", "format": "date-time", "description": "Instante em que o barramento aceitou o evento (timestamp do broker; no HTTP, o recebimento na API). Início da medição de latência, inclui a fila (RNF-03)." },
     "consumedAt": { "type": "string", "format": "date-time", "description": "Início do processamento pelo motor. consumedAt - ingestedAt = tempo de fila." },
     "detectedAt": { "type": "string", "format": "date-time" },
-    "publishedAt": { "type": "string", "format": "date-time", "description": "Fim da medição de latência (RNF-03)." },
+    "publishedAt": { "type": "string", "format": "date-time", "description": "Momento do envio ao barramento (carimbado antes do publish). O fim do SLO (aceite pelo SNS) é medido por alert_latency_ms e pelo published_at do banco (RNF-03)." },
     "latencyMs": { "type": "integer", "minimum": 0, "description": "publishedAt - ingestedAt." },
     "degraded": { "type": "boolean", "description": "true se alguma dependência estava fora e regras com janela foram avaliadas de forma parcial." },
     "degradedReasons": { "type": "array", "items": { "enum": ["WINDOW_STATE_UNAVAILABLE", "RULES_STALE", "LIST_UNAVAILABLE"] } },

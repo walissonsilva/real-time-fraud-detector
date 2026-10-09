@@ -60,9 +60,11 @@ produtores ──▶ [transactions.v1] ──▶ validação ──▶ avaliaç�
 | `ingestedAt` | **O barramento aceitou o evento.** Início do SLO de 500 ms | Timestamp do broker (`SentTimestamp` no SQS, *LogAppendTime* no Kafka); no HTTP, recebimento na API |
 | `consumedAt` | O motor iniciou o processamento | Relógio do motor |
 | `detectedAt` | Decisão de regras concluída | Relógio do motor |
-| `publishedAt` | Alerta persistido e publicado. Fim do SLO | Relógio do motor |
+| `publishedAt` | **Momento do envio ao barramento** (carimbado no corpo antes do `publish`). Alerta já persistido | Relógio do motor |
 
-`latencyMs = publishedAt − ingestedAt` **inclui a espera na fila**; `consumedAt − ingestedAt` isola a fila. O relógio do produtor não entra na medição. Como `ingestedAt` vem do broker e os demais do motor, os relógios precisam estar sincronizados (NTP / Amazon Time Sync); desvio acima de alguns ms deve gerar alarme.
+`publishedAt` precisa estar no corpo da mensagem, então só pode registrar o instante do envio; o aceite pelo SNS só é conhecido depois. O **fim do SLO** é o aceite: a métrica `alert_latency_ms` e a coluna `published_at` (`alerts` e `outbox`) usam o relógio tirado após o `publish` (inclui timeout e retentativas), logo podem ser ligeiramente maiores que o `latencyMs` do corpo.
+
+`latencyMs = publishedAt − ingestedAt` (no corpo) **inclui a espera na fila**; `consumedAt − ingestedAt` isola a fila. O relógio do produtor não entra na medição. Como `ingestedAt` vem do broker e os demais do motor, os relógios precisam estar sincronizados (NTP / Amazon Time Sync); desvio acima de alguns ms deve gerar alarme.
 
 ## 4. Semântica de entrega e idempotência
 
