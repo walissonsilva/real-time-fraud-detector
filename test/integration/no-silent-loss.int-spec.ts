@@ -4,8 +4,8 @@ import { Test } from '@nestjs/testing';
 import { GetQueueAttributesCommand, GetQueueUrlCommand, SendMessageCommand } from '@aws-sdk/client-sqs';
 import { Pool } from 'pg';
 import { AppModule } from '../../src/app.module';
-import { deliveryIdOf } from '../../src/domain/alert/delivery-id';
-import { CHANNEL_FAULTS, ChannelFaults } from '../../src/infrastructure/messaging/messaging.module';
+import { deliveryIdOf } from '../../src/deliveries/delivery-id';
+import { CHANNEL_FAULTS, ChannelFaults } from '../../src/deliveries/deliveries.module';
 import { drain, newPool, newSqs, purge, readExample } from './support';
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));

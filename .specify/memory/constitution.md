@@ -1,7 +1,7 @@
 <!--
 Sync Impact Report
-- Version change: (template, não versionado) → 1.0.0
-- Princípios modificados: nenhum renomeado (todos adicionados na ratificação inicial)
+- Version change: 1.0.0 → 2.0.0
+- Princípios modificados: I (Arquitetura Hexagonal → Arquitetura Modular NestJS); VI (referência à porta `RuleEngine` → serviço `DeclarativeRuleEngine`)
 - Seções adicionadas: Princípios I–VII, Restrições Técnicas e de Segurança,
   Fluxo de Desenvolvimento e Portões de Qualidade, Governança
 - Seções removidas: nenhuma
@@ -16,14 +16,15 @@ Sync Impact Report
 
 ## Core Principles
 
-### I. Arquitetura Hexagonal (Domínio Puro)
-O código MUST seguir portas e adaptadores: `src/domain` contém modelos puros sem dependência
-de NestJS ou infraestrutura; `src/application` expõe casos de uso e interfaces (portas);
-`src/infrastructure` contém os adaptadores (Postgres, Redis, SQS/SNS, HTTP). Dependências MUST
-apontar sempre para dentro (infraestrutura → aplicação → domínio). Trocar um adaptador MUST NOT
-exigir mudança no domínio ou nos casos de uso.
-Racional: isola a lógica de detecção, permite testá-la sem I/O e sustenta as decisões de
-trade-off exigidas pelo desafio.
+### I. Arquitetura Modular NestJS
+O código MUST seguir a organização padrão do NestJS: um módulo por funcionalidade
+(`transactions`, `rules`, `alerts`, `deliveries`, `dlq`, `health`) mais módulos transversais
+(`config`, `observability`, `database`, `aws`, `cache`). Serviços e repositórios são
+`@Injectable()` e injetados pela classe; módulos declaram `providers`/`exports`/`imports`
+explicitamente, sem dependências circulares. Regras de negócio puras (decisão, dedupe, validação)
+SHOULD ser funções sem I/O, testáveis sem Nest. Abstrações (interfaces + token) só são
+justificadas quando houver mais de uma implementação real.
+Racional: estrutura familiar à equipe, menos indireção e testabilidade preservada.
 
 ### II. Contratos Primeiro (NON-NEGOTIABLE)
 Eventos, alertas, regras, mensagens de DLQ e a API HTTP MUST ser definidos como contratos
@@ -59,7 +60,7 @@ Racional: escala e latência são os requisitos que mais restringem as decisões
 ### VI. Regras Extensíveis sem Redeploy
 Regras de detecção MUST ser dados versionados (contrato `rule`/`rule-version`), criados e
 alterados em tempo de execução via API, com histórico de versões. Adicionar ou ajustar uma regra
-MUST NOT exigir novo deploy. O motor MUST avaliar regras por meio da porta `RuleEngine`, sem
+MUST NOT exigir novo deploy. O motor MUST avaliar regras por meio do serviço `DeclarativeRuleEngine` (módulo `rules`), sem
 lógica de regra específica no código dos adaptadores.
 Racional: o desafio exige extensibilidade sem redeploy.
 
@@ -114,4 +115,4 @@ correções de redação.
 **Revisão de conformidade**: verificada no Constitution Check de cada plano e na revisão de
 cada mudança. Orientações de execução para agentes ficam em `AGENTS.md`.
 
-**Version**: 1.0.0 | **Ratified**: 2026-10-08 | **Last Amended**: 2026-10-08
+**Version**: 2.0.0 | **Ratified**: 2026-10-08 | **Last Amended**: 2026-10-08

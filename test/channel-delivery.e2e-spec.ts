@@ -4,11 +4,11 @@ import { Test } from '@nestjs/testing';
 import { GetQueueUrlCommand, SendMessageCommand } from '@aws-sdk/client-sqs';
 import { Pool } from 'pg';
 import { AppModule } from '../src/app.module';
-import { NOTIFICATION_PROVIDERS, NotificationProvider } from '../src/application/ports/notification-provider.port';
-import { deliveryIdOf } from '../src/domain/alert/delivery-id';
-import { CustomerPushProvider } from '../src/infrastructure/channels/customer-push.provider';
-import { AntifraudQueueProvider } from '../src/infrastructure/channels/antifraud-queue.provider';
-import { CHANNEL_FAULTS, ChannelFaults } from '../src/infrastructure/messaging/messaging.module';
+import { NOTIFICATION_PROVIDERS, NotificationProvider } from '../src/deliveries/notification-provider';
+import { deliveryIdOf } from '../src/deliveries/delivery-id';
+import { CustomerPushProvider } from '../src/deliveries/channels/customer-push.provider';
+import { AntifraudQueueProvider } from '../src/deliveries/channels/antifraud-queue.provider';
+import { CHANNEL_FAULTS, ChannelFaults } from '../src/deliveries/deliveries.module';
 import { drain, newSqs, purge, readExample } from './integration/support';
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));

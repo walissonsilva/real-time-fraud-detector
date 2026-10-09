@@ -51,12 +51,12 @@ Detalhes: [research.md](research.md) · [data-model.md](data-model.md) · [contr
 
 | Princípio | Avaliação | Observação |
 |-----------|-----------|------------|
-| I. Hexagonal | ✅ | `EventBus` (SNS), `AlertRepository` (outbox) e `NotificationProvider` já existem como portas; adaptadores ficam em `infrastructure/` |
+| I. Arquitetura modular NestJS | ✅ | Um módulo por funcionalidade (`transactions`, `rules`, `alerts`, `deliveries`, `dlq`); serviços injetados por classe |
 | II. Contratos primeiro | ✅ | Usa `FraudAlert v1`, `AlertDelivery v1`, `DlqMessage v1` existentes; topologia SNS/SQS documentada em [contracts/messaging.md](contracts/messaging.md); nenhuma mudança incompatível |
 | III. Idempotência | ✅ | `dedupe_key` UNIQUE no Postgres; `MessageDeduplicationId` no SNS FIFO; `deliveryId` estável no canal |
 | IV. Resiliência | ✅ | Timeout + retry com backoff em SNS e canais; relay cobre falha de publicação; DLQ por etapa; testes de falha previstos |
 | V. Desempenho | ⚠️ → ✅ | Publicação imediata evita latência de polling; alertas são fração do TPS de entrada. Risco de teto do SNS FIFO registrado em research.md D-06; verificar em teste de carga |
-| VI. Regras sem redeploy | ⚠️ Desvio já aceito na spec | A spec limita a feature a regras em configuração versionada carregada na inicialização (FR-014a, Assumptions). Não afeta esta decisão; `RuleEngine` permanece como porta |
+| VI. Regras sem redeploy | ⚠️ Desvio já aceito na spec | A spec limita a feature a regras em configuração versionada carregada na inicialização (FR-014a, Assumptions). Não afeta esta decisão; `DeclarativeRuleEngine` permanece como serviço do módulo `rules` |
 | VII. Segurança/observabilidade | ✅ | TLS/SSE em SNS/SQS, sem PII em log, métricas de outbox pendente e entregas |
 
 **Resultado**: sem violações injustificadas. O desvio do Princípio VI é de escopo (declarado na spec), não de arquitetura.
@@ -82,26 +82,13 @@ specs/001-transaction-fraud-detection/
 
 ```text
 src/
-├── domain/
-│   ├── alert/                     # FraudAlert, dedupeKey, consolidação de decisão
-│   ├── rule/                      # regras stateless
-│   └── transaction/               # TransactionEvent
-├── application/
-│   ├── ports/                     # AlertRepository, EventBus, NotificationProvider, RuleEngine, ...
-│   └── use-cases/
-│       ├── process-transaction.ts # valida → decide → saveWithOutbox → publica imediato
-│       ├── relay-outbox.ts        # varre pendentes e republica
-│       └── deliver-alert.ts       # consumo por canal, deliveryId, retry, DLQ
-└── infrastructure/
-    ├── messaging/
-    │   ├── sqs-transaction.consumer.ts
-    │   ├── sns-event-bus.ts       # adaptador de EventBus
-    │   ├── sqs-channel.consumer.ts
-    │   └── sqs-dlq.publisher.ts
-    ├── persistence/
-    │   ├── postgres-alert.repository.ts   # existente; ganha tratamento de tentativas do outbox
-    │   └── migrations/002_outbox_relay.sql
-    └── channels/                  # provedores: fila antifraude e push (simulado)
+├── transactions/   # consumidor SQS, validação Ajv, ProcessTransactionService, RejectInvalidEventService
+├── rules/          # DeclarativeRuleEngine, rules-config.loader, StaticRuleRepository
+├── alerts/         # FraudAlert, decisão/dedupe, AlertRepository (outbox), SnsEventBus, RelayOutboxService
+├── deliveries/     # DeliverAlertService, DeliveryRepository, provedores (antifraude, push), consumidores por canal
+├── dlq/            # DlqMessage, SqsDlqPublisher
+├── health/         # /health, /metrics
+└── config/ observability/ database/ aws/ cache/ shared/   # transversais; migrações em database/migrations
 
 test/
 ├── integration/                   # outbox + SNS→SQS no LocalStack, falha de SNS, concorrência
@@ -110,7 +97,7 @@ test/
 infra/localstack/init-aws.sh       # já cria alerts.fifo + filas por canal; ganha DLQs de entrega
 ```
 
-**Structure Decision**: serviço único, mantendo o layout hexagonal já presente no repositório. A infraestrutura do SNS FIFO e das filas por canal já existe no `init-aws.sh`; o plano acrescenta DLQs de entrega e migração do outbox.
+**Structure Decision**: serviço único, organizado em módulos NestJS por funcionalidade. A infraestrutura do SNS FIFO e das filas por canal já existe no `init-aws.sh`; o plano acrescenta DLQs de entrega e migração do outbox.
 
 ## Complexity Tracking
 

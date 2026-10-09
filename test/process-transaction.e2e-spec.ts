@@ -2,25 +2,14 @@ import { randomUUID } from 'node:crypto';
 import { writeFileSync, mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { Global, INestApplication, Module } from '@nestjs/common';
+import { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { GetQueueAttributesCommand, GetQueueUrlCommand, SendMessageCommand } from '@aws-sdk/client-sqs';
 import { Pool } from 'pg';
 import { AppModule } from '../src/app.module';
-import { DELIVERY_REPOSITORY } from '../src/application/ports/delivery-repository.port';
-import { ALERT_REPOSITORY } from '../src/application/ports/alert-repository.port';
-import { ConfigModule } from '../src/infrastructure/config/config.module';
-import { MessagingModule } from '../src/infrastructure/messaging/messaging.module';
+import { ConfigModule } from '../src/config/config.module';
+import { RulesModule } from '../src/rules/rules.module';
 import { CHANNEL_QUEUES, drain, newSqs, purge, readExample } from './integration/support';
-
-/** Repositório de mentira: o teste de inicialização não deve abrir conexões que vazem handles. */
-@Global()
-@Module({ providers: [
-    { provide: ALERT_REPOSITORY, useValue: {} },
-    { provide: DELIVERY_REPOSITORY, useValue: {} },
-  ],
-  exports: [ALERT_REPOSITORY, DELIVERY_REPOSITORY], })
-class StubPersistenceModule {}
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -146,7 +135,7 @@ describe('processamento ponta a ponta: SQS → regras → outbox → SNS → can
     process.env.RULES_CONFIG_PATH = bad;
     try {
       await expect(
-        Test.createTestingModule({ imports: [ConfigModule, StubPersistenceModule, MessagingModule] }).compile(),
+        Test.createTestingModule({ imports: [ConfigModule, RulesModule] }).compile(),
       ).rejects.toThrow(/Configuração de regras inválida/);
     } finally {
       process.env.RULES_CONFIG_PATH = previous;

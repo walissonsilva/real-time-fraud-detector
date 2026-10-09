@@ -15,7 +15,7 @@
     "test": "jest",
     "test:cov": "jest --coverage",
     "test:e2e": "set -a; . ./.env; set +a; jest --config test/jest-e2e.config.js --runInBand",
-    "migrate": "set -a; . ./.env; set +a; ts-node src/infrastructure/persistence/migrate.ts",
+    "migrate": "set -a; . ./.env; set +a; ts-node src/database/migrate.ts",
     "contracts:validate": "node docs/contratos/validate-contracts.mjs",
     "infra:up": "docker compose up -d --wait postgres redis localstack",
     "infra:down": "docker compose down -v",
@@ -66,8 +66,8 @@
       "^.+\\.ts$": "ts-jest"
     },
     "collectCoverageFrom": [
-      "domain/**/*.ts",
-      "application/**/*.ts"
+      "**/*.service.ts",
+      "**/*.types.ts"
     ],
     "coverageDirectory": "../coverage",
     "testEnvironment": "node"

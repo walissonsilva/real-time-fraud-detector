@@ -1,12 +1,12 @@
 import { randomUUID } from 'node:crypto';
 import { Pool } from 'pg';
-import { PostgresAlertRepository } from '../../src/infrastructure/persistence/postgres-alert.repository';
+import { AlertRepository } from '../../src/alerts/alert.repository';
 import { newPool, pendingAlert } from './support';
 
 describe('relay do outbox: claim concorrente e backoff (requer infra:up e migrate)', () => {
   const runId = randomUUID().slice(0, 8);
   const pool: Pool = newPool();
-  const repo = new PostgresAlertRepository(pool);
+  const repo = new AlertRepository(pool);
   const alertIds: string[] = [];
 
   const seed = async (n: number) => {
@@ -32,7 +32,7 @@ describe('relay do outbox: claim concorrente e backoff (requer infra:up e migrat
     const ids = await seed(20);
     const [a, b] = await Promise.all([
       repo.claimPendingOutbox(1000, 0, 60_000),
-      new PostgresAlertRepository(pool).claimPendingOutbox(1000, 0, 60_000),
+      new AlertRepository(pool).claimPendingOutbox(1000, 0, 60_000),
     ]);
     const claimedA = mine(a);
     const claimedB = mine(b);

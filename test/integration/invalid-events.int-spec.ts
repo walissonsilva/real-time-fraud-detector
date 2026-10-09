@@ -1,14 +1,14 @@
 import { randomUUID } from 'node:crypto';
 import { GetQueueAttributesCommand, GetQueueUrlCommand, SendMessageCommand } from '@aws-sdk/client-sqs';
 import { Pool } from 'pg';
-import { ProcessTransaction } from '../../src/application/use-cases/process-transaction';
-import { RejectInvalidEvent } from '../../src/application/use-cases/reject-invalid-event';
-import { AppConfig, loadConfig } from '../../src/infrastructure/config/config.module';
-import { AjvTransactionEventValidator } from '../../src/infrastructure/contracts/ajv-transaction-event.validator';
-import { SqsDlqPublisher } from '../../src/infrastructure/messaging/sqs-dlq.publisher';
-import { SqsTransactionConsumer } from '../../src/infrastructure/messaging/sqs-transaction.consumer';
-import { JsonLogger } from '../../src/infrastructure/observability/logger';
-import { InMemoryMetrics } from '../../src/infrastructure/observability/metrics';
+import { ProcessTransactionService } from '../../src/transactions/process-transaction.service';
+import { RejectInvalidEventService } from '../../src/transactions/reject-invalid-event.service';
+import { AppConfig, loadConfig } from '../../src/config/config.module';
+import { AjvTransactionEventValidator } from '../../src/transactions/ajv-transaction-event.validator';
+import { SqsDlqPublisher } from '../../src/dlq/sqs-dlq.publisher';
+import { SqsTransactionConsumer } from '../../src/transactions/sqs-transaction.consumer';
+import { JsonLogger } from '../../src/observability/logger';
+import { InMemoryMetrics } from '../../src/observability/metrics';
 import { drain, newPool, newSqs, purge, readExample } from './support';
 
 /** Texto do original: objeto serializado ou base64 decodificado. */
@@ -46,18 +46,12 @@ describe('eventos inválidos → DLQ (requer infra:up e migrate)', () => {
     config = loadConfig();
     queueUrl = (await sqs.send(new GetQueueUrlCommand({ QueueName: config.queues.transactions }))).QueueUrl!;
     await purge(sqs, [config.queues.transactions, config.queues.transactionsDlq]);
-    const reject = new RejectInvalidEvent({
-      dlq: new SqsDlqPublisher(sqs),
-      dlqQueue: config.queues.transactionsDlq,
-      source: config.queues.transactions,
-      logger,
-      metrics,
-    });
+    const reject = new RejectInvalidEventService(new SqsDlqPublisher(sqs), config, logger, metrics);
     consumer = new SqsTransactionConsumer(
       sqs,
       config,
       new AjvTransactionEventValidator(),
-      processor as unknown as ProcessTransaction,
+      processor as unknown as ProcessTransactionService,
       reject,
       new SqsDlqPublisher(sqs),
       logger,

@@ -13,8 +13,8 @@ import {
 import Ajv2020 from 'ajv/dist/2020';
 import addFormats from 'ajv-formats';
 import { Pool } from 'pg';
-import { FraudAlert } from '../../src/domain/alert/fraud-alert';
-import { PostgresAlertRepository } from '../../src/infrastructure/persistence/postgres-alert.repository';
+import { FraudAlert } from '../../src/alerts/fraud-alert';
+import { AlertRepository } from '../../src/alerts/alert.repository';
 
 const contracts = join(__dirname, '../../docs/contratos');
 const readJson = (rel: string) => JSON.parse(readFileSync(join(contracts, rel), 'utf8'));
@@ -25,7 +25,7 @@ describe('infra smoke: SQS real + Postgres real (requer infra:up e migrate)', ()
     endpoint: process.env.AWS_ENDPOINT_URL,
   });
   const pool = new Pool({ connectionString: process.env.DATABASE_URL });
-  const repo = new PostgresAlertRepository(pool);
+  const repo = new AlertRepository(pool);
   const runId = randomUUID();
   const alertIds: string[] = [];
 

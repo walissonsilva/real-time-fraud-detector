@@ -1,37 +1,38 @@
+import { AppConfig } from '../../src/config/config.module';
 import { randomUUID } from 'node:crypto';
 import { SNSClient } from '@aws-sdk/client-sns';
 import { Pool } from 'pg';
-import { EventBus } from '../../src/application/ports/event-bus.port';
-import { Logger, Metrics } from '../../src/application/ports/observability.port';
-import { OutboxEntryPublisher } from '../../src/application/use-cases/publish-outbox-entry';
-import { ProcessTransaction } from '../../src/application/use-cases/process-transaction';
-import { RelayOutbox } from '../../src/application/use-cases/relay-outbox';
-import { PostgresAlertRepository } from '../../src/infrastructure/persistence/postgres-alert.repository';
-import { SnsEventBus } from '../../src/infrastructure/messaging/sns-event-bus';
-import { DeclarativeRuleEngine } from '../../src/infrastructure/rules/declarative-rule-engine';
-import { loadRulesConfig } from '../../src/infrastructure/rules/rules-config.loader';
-import { StaticRuleRepository } from '../../src/infrastructure/rules/static-rule.repository';
+import { OutboxEntryPublisherService } from '../../src/alerts/outbox-entry-publisher.service';
+import { ProcessTransactionService } from '../../src/transactions/process-transaction.service';
+import { RelayOutboxService } from '../../src/alerts/relay-outbox.service';
+import { AlertRepository } from '../../src/alerts/alert.repository';
+import { SnsEventBus } from '../../src/alerts/sns-event-bus';
+import { DeclarativeRuleEngine } from '../../src/rules/declarative-rule-engine';
+import { loadRulesConfig } from '../../src/rules/rules-config.loader';
+import { StaticRuleRepository } from '../../src/rules/static-rule.repository';
 import { CHANNEL_QUEUES, drain, ingested, newPool, newSqs, purge, suspiciousEvent } from './support';
+import { JsonLogger } from '../../src/observability/logger';
+import { InMemoryMetrics } from '../../src/observability/metrics';
 
-const logger: Logger = { info: () => undefined, warn: () => undefined, error: () => undefined };
-const metrics: Metrics = { increment: () => undefined, gauge: () => undefined, observe: () => undefined };
+const logger = { info: () => undefined, warn: () => undefined, error: () => undefined } as unknown as JsonLogger;
+const metrics = { increment: () => undefined, gauge: () => undefined, observe: () => undefined } as unknown as InMemoryMetrics;
 
 describe('outbox + SNS → SQS (requer infra:up e migrate)', () => {
   const runId = randomUUID().slice(0, 8);
   const pool: Pool = newPool();
   const sqs = newSqs();
   const sns = new SNSClient({ region: process.env.AWS_REGION, endpoint: process.env.AWS_ENDPOINT_URL });
-  const repo = new PostgresAlertRepository(pool);
+  const repo = new AlertRepository(pool);
   const engine = new DeclarativeRuleEngine();
   const rules = new StaticRuleRepository(loadRulesConfig('config/rules.json', engine));
   const realBus = new SnsEventBus(sns, { snsAlertsTopic: 'alerts.fifo', snsPublishTimeoutMs: 5000 });
   const transactionIds: string[] = [];
 
-  const build = (bus: EventBus) => {
-    const publisher = new OutboxEntryPublisher({ alerts: repo, bus, logger, metrics });
+  const build = (bus: SnsEventBus) => {
+    const publisher = new OutboxEntryPublisherService(repo, bus, logger, metrics);
     return {
-      process: new ProcessTransaction({ rules, engine, alerts: repo, publisher, logger, metrics }),
-      relay: new RelayOutbox(repo, publisher, logger, metrics, { batchSize: 50, minAgeMs: 0 }),
+      process: new ProcessTransactionService(rules, engine, repo, publisher, logger, metrics),
+      relay: new RelayOutboxService(repo, publisher, logger, metrics, { outboxRelay: { batchSize: 50, minAgeMs: 0, intervalMs: 0 } } as AppConfig),
     };
   };
 
@@ -85,11 +86,11 @@ describe('outbox + SNS → SQS (requer infra:up e migrate)', () => {
   it('cenário 3: SNS indisponível → alerta pendente, evento concluído; o relay publica depois', async () => {
     const event = suspiciousEvent(runId);
     transactionIds.push(event.transactionId);
-    const downBus: EventBus = {
+    const downBus = {
       publishAlert: async () => {
         throw Object.assign(new Error('sns fora'), { code: 'ServiceUnavailable' });
       },
-    };
+    } as unknown as SnsEventBus;
 
     await expect(build(downBus).process.execute(ingested(event))).resolves.toBe('ALERT_CREATED');
 
@@ -136,7 +137,7 @@ describe('outbox + SNS → SQS (requer infra:up e migrate)', () => {
   it('reentrega com outbox pendente completa a publicação sem criar novo alerta (FR-017a)', async () => {
     const event = suspiciousEvent(runId);
     transactionIds.push(event.transactionId);
-    const down: EventBus = { publishAlert: async () => { throw new Error('x'); } };
+    const down = { publishAlert: async () => { throw new Error('x'); } } as unknown as SnsEventBus;
     await build(down).process.execute(ingested(event));
     expect((await rowFor(event.transactionId))[0].o_pub).toBeNull();
 

@@ -1,16 +1,29 @@
 import { Module } from '@nestjs/common';
-import { ConfigModule } from './infrastructure/config/config.module';
-import { HealthModule } from './infrastructure/health/health.module';
-import { PostgresModule } from './infrastructure/persistence/postgres.module';
-import { RedisModule } from './infrastructure/cache/redis.module';
-import { MessagingModule } from './infrastructure/messaging/messaging.module';
-import { ObservabilityModule } from './infrastructure/observability/observability.module';
+import { AlertsModule } from './alerts/alerts.module';
+import { AwsClientsModule } from './aws/aws-clients.module';
+import { RedisModule } from './cache/redis.module';
+import { ConfigModule } from './config/config.module';
+import { DatabaseModule } from './database/database.module';
+import { DeliveriesModule } from './deliveries/deliveries.module';
+import { DlqModule } from './dlq/dlq.module';
+import { HealthModule } from './health/health.module';
+import { ObservabilityModule } from './observability/observability.module';
+import { RulesModule } from './rules/rules.module';
+import { TransactionsModule } from './transactions/transactions.module';
 
-/**
- * Composition root: é aqui que as portas (application/ports) são ligadas aos
- * adaptadores (infrastructure/*). O domínio e a aplicação não importam NestJS.
- */
 @Module({
-  imports: [ConfigModule, ObservabilityModule, PostgresModule, RedisModule, HealthModule, MessagingModule],
+  imports: [
+    ConfigModule,
+    ObservabilityModule,
+    DatabaseModule,
+    AwsClientsModule,
+    RedisModule,
+    HealthModule,
+    RulesModule,
+    DlqModule,
+    AlertsModule,
+    TransactionsModule,
+    DeliveriesModule,
+  ],
 })
 export class AppModule {}

@@ -2,16 +2,19 @@
 
 Motor de detecção de transações suspeitas em tempo real (CE 1). Decisões e requisitos em [docs/](docs/README.md).
 
-## Estrutura (hexagonal)
+## Estrutura (módulos NestJS)
+
+Um módulo por funcionalidade; cada serviço é `@Injectable()` e injetado pela classe (sem portas/tokens).
 
 ```
 src/
-  domain/          modelos puros (sem NestJS): transaction, rule, alert
-  application/
-    ports/         interfaces: EventBus, RuleRepository, AlertRepository, RuleEngine, NotificationProvider, WindowStateStore
-    use-cases/     ProcessTransaction, RejectInvalidEvent, RelayOutbox, DeliverAlert
-  infrastructure/  adaptadores: config, health (+ /metrics), persistence (Postgres + migrações), cache (Redis),
-                   messaging (SQS/SNS), channels (provedores simulados), rules (motor declarativo), contracts (Ajv)
+  transactions/   consumo da fila de transações (SQS), validação (Ajv), ProcessTransactionService, RejectInvalidEventService
+  rules/          regras declarativas: DeclarativeRuleEngine, carga/validação de config/rules.json, StaticRuleRepository
+  alerts/         FraudAlert, decisão/dedupe, AlertRepository (Postgres + outbox), SnsEventBus, relay do outbox
+  deliveries/     entrega por canal: DeliverAlertService, DeliveryRepository, provedores simulados, consumidores SQS
+  dlq/            DlqMessage e SqsDlqPublisher
+  health/         /health e /metrics
+  config/ observability/ database/ aws/ cache/ shared/   infraestrutura transversal (config, logs/métricas, Postgres + migrações, SQS/SNS, Redis, retry)
 config/rules.json  regras stateless carregadas na inicialização
 scripts/           teste de carga (`npm run load`)
 infra/localstack/  criação das filas e tópicos (ADR-01)
