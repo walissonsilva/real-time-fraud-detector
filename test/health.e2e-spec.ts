@@ -9,6 +9,7 @@ describe('health (requer `npm run infra:up`)', () => {
   beforeAll(async () => {
     process.env.DATABASE_URL ??= 'postgres://fraud:fraud@localhost:55432/fraud';
     process.env.REDIS_URL ??= 'redis://localhost:6379';
+    process.env.CONSUMERS_ENABLED = 'false'; // health não precisa dos consumidores
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
     app = moduleRef.createNestApplication();
     await app.init();

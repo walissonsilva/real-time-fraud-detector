@@ -132,7 +132,6 @@ describe('infra smoke: SQS real + Postgres real (requer infra:up e migrate)', ()
       alertId: randomUUID(),
       dedupeKey: `int-${runId}`,
       transactionId: `tx-int-${runId}`,
-      amount: base.transaction.amount,
     } as FraudAlert;
     alertIds.push(alert.alertId);
 

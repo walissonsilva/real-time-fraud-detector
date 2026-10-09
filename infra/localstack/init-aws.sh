@@ -14,6 +14,9 @@ awslocal sqs create-queue --queue-name transactions \
 awslocal sns create-topic --name alerts.fifo \
   --attributes FifoTopic=true,ContentBasedDeduplication=false
 for channel in antifraud-queue customer-push; do
+  # DLQ de entrega do canal (D-05): falhas de entrega esgotadas vão para cá como DlqMessage
+  awslocal sqs create-queue --queue-name "alert-deliveries-${channel}-dlq.fifo" \
+    --attributes FifoQueue=true,ContentBasedDeduplication=false,MessageRetentionPeriod=1209600
   awslocal sqs create-queue --queue-name "alert-deliveries-${channel}.fifo" \
     --attributes FifoQueue=true,ContentBasedDeduplication=false
   QARN="arn:aws:sqs:us-east-1:000000000000:alert-deliveries-${channel}.fifo"

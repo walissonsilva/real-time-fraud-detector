@@ -8,4 +8,8 @@ async function bootstrap() {
   await app.listen(process.env.PORT ?? 3000, '0.0.0.0');
 }
 
-void bootstrap();
+bootstrap().catch((err: unknown) => {
+  // FR-014b: configuração de regras inválida (ou qualquer falha de inicialização) impede o serviço de subir.
+  console.error(JSON.stringify({ level: 'error', message: 'falha na inicialização do serviço', error: (err as Error).message }));
+  process.exit(1);
+});

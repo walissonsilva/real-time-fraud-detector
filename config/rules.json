@@ -1,0 +1,53 @@
+{
+  "revision": 1,
+  "rules": [
+    {
+      "ruleId": "high-amount",
+      "version": 1,
+      "name": "Valor alto",
+      "kind": "STATELESS",
+      "severity": "HIGH",
+      "weight": 40,
+      "mode": "ACTIVE",
+      "params": { "limitMinorUnits": 1000000 },
+      "expression": "tx.amount.minorUnits >= params.limitMinorUnits",
+      "reason": "Valor igual ou acima do limite de {params.limitMinorUnits} (centavos)"
+    },
+    {
+      "ruleId": "high-value-new-counterparty",
+      "version": 1,
+      "name": "Valor alto para contraparte nova",
+      "kind": "STATELESS",
+      "severity": "MEDIUM",
+      "weight": 25,
+      "mode": "ACTIVE",
+      "params": { "limitMinorUnits": 500000 },
+      "expression": "has(tx.counterparty.idToken) && tx.amount.minorUnits >= params.limitMinorUnits && !has(tx.counterparty.firstSeenAt)",
+      "reason": "Valor alto para contraparte nunca usada"
+    },
+    {
+      "ruleId": "risky-merchant-country",
+      "version": 1,
+      "name": "País do comerciante de risco",
+      "kind": "STATELESS",
+      "severity": "MEDIUM",
+      "weight": 30,
+      "mode": "ACTIVE",
+      "params": { "countries": ["KP", "IR", "SY", "CU"] },
+      "expression": "has(tx.merchant.country) && tx.merchant.country in params.countries",
+      "reason": "Comerciante em país da lista de risco"
+    },
+    {
+      "ruleId": "unusual-channel-transaction-type",
+      "version": 1,
+      "name": "Canal e tipo de transação incomuns",
+      "kind": "STATELESS",
+      "severity": "LOW",
+      "weight": 15,
+      "mode": "ACTIVE",
+      "params": { "channels": ["ATM", "POS"], "transactionTypes": ["PIX", "BOLETO"] },
+      "expression": "tx.channel in params.channels && tx.transactionType in params.transactionTypes",
+      "reason": "Combinação incomum de canal e tipo de transação"
+    }
+  ]
+}

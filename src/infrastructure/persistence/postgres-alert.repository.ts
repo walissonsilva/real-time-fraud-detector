@@ -1,14 +1,26 @@
 import { Inject, Injectable } from '@nestjs/common';
 import type { Pool } from 'pg';
 import { FraudAlert } from '../../domain/alert/fraud-alert';
-import { AlertRepository } from '../../application/ports/alert-repository.port';
+import { AlertRepository, OutboxEntry } from '../../application/ports/alert-repository.port';
 import { PG_POOL } from './pg-pool.token';
+
+interface OutboxRow {
+  payload: FraudAlert;
+  traceparent: string | null;
+  attempts: number;
+}
+
+const toEntry = (row: OutboxRow): OutboxEntry => ({
+  alert: row.payload,
+  attempts: row.attempts,
+  ...(row.traceparent ? { traceparent: row.traceparent } : {}),
+});
 
 @Injectable()
 export class PostgresAlertRepository implements AlertRepository {
   constructor(@Inject(PG_POOL) private readonly pool: Pool) {}
 
-  async saveWithOutbox(alert: FraudAlert): Promise<boolean> {
+  async saveWithOutbox(alert: FraudAlert, traceparent?: string): Promise<boolean> {
     const client = await this.pool.connect();
     try {
       await client.query('BEGIN');
@@ -20,7 +32,7 @@ export class PostgresAlertRepository implements AlertRepository {
         [
           alert.alertId, alert.dedupeKey, alert.transactionId, alert.customerId, alert.accountId,
           alert.severity, alert.score, JSON.stringify(alert.triggeredRules),
-          JSON.stringify({ amount: alert.amount }), alert.degraded, alert.late, alert.status,
+          JSON.stringify(alert.transaction), alert.degraded, alert.late, alert.status,
           alert.ingestedAt, alert.detectedAt,
         ],
       );
@@ -28,9 +40,10 @@ export class PostgresAlertRepository implements AlertRepository {
         await client.query('ROLLBACK');
         return false;
       }
-      await client.query('INSERT INTO outbox (alert_id, payload) VALUES ($1, $2)', [
+      await client.query('INSERT INTO outbox (alert_id, payload, traceparent) VALUES ($1, $2, $3)', [
         alert.alertId,
         JSON.stringify(alert),
+        traceparent ?? null,
       ]);
       await client.query('COMMIT');
       return true;
@@ -46,8 +59,8 @@ export class PostgresAlertRepository implements AlertRepository {
     const client = await this.pool.connect();
     try {
       await client.query('BEGIN');
-      await client.query('UPDATE outbox SET published_at = $2 WHERE alert_id = $1', [alertId, publishedAt]);
-      await client.query('UPDATE alerts SET published_at = $2 WHERE alert_id = $1', [alertId, publishedAt]);
+      await client.query('UPDATE outbox SET published_at = $2 WHERE alert_id = $1 AND published_at IS NULL', [alertId, publishedAt]);
+      await client.query('UPDATE alerts SET published_at = $2 WHERE alert_id = $1 AND published_at IS NULL', [alertId, publishedAt]);
       await client.query('COMMIT');
     } catch (err) {
       await client.query('ROLLBACK').catch(() => undefined);
@@ -57,13 +70,52 @@ export class PostgresAlertRepository implements AlertRepository {
     }
   }
 
-  async claimPendingOutbox(limit: number, olderThanMs: number): Promise<FraudAlert[]> {
-    const { rows } = await this.pool.query<{ payload: FraudAlert }>(
-      `SELECT payload FROM outbox
-        WHERE published_at IS NULL AND created_at < now() - ($2 * interval '1 millisecond')
-        ORDER BY created_at LIMIT $1 FOR UPDATE SKIP LOCKED`,
-      [limit, olderThanMs],
+  async recordPublishFailure(alertId: string, errorCode: string): Promise<void> {
+    // Backoff exponencial do relay: 1 s, 2 s, 4 s ... limitado a 60 s.
+    await this.pool.query(
+      `UPDATE outbox
+          SET attempts = attempts + 1,
+              last_error = $2,
+              next_attempt_at = now() + LEAST(60000, 1000 * power(2, attempts)) * interval '1 millisecond'
+        WHERE alert_id = $1 AND published_at IS NULL`,
+      [alertId, errorCode.slice(0, 64)],
     );
-    return rows.map((r) => r.payload);
+  }
+
+  async claimPendingOutbox(limit: number, olderThanMs: number, leaseMs = 30_000): Promise<OutboxEntry[]> {
+    const { rows } = await this.pool.query<OutboxRow>(
+      `UPDATE outbox o
+          SET next_attempt_at = now() + ($3 * interval '1 millisecond')
+        WHERE o.alert_id IN (
+          SELECT alert_id FROM outbox
+           WHERE published_at IS NULL
+             AND next_attempt_at <= now()
+             AND created_at < now() - ($2 * interval '1 millisecond')
+           ORDER BY next_attempt_at
+           LIMIT $1
+           FOR UPDATE SKIP LOCKED)
+      RETURNING o.payload, o.traceparent, o.attempts`,
+      [limit, olderThanMs, leaseMs],
+    );
+    return rows.map(toEntry);
+  }
+
+  async findPendingByDedupeKey(dedupeKey: string): Promise<OutboxEntry | null> {
+    const { rows } = await this.pool.query<OutboxRow>(
+      `SELECT o.payload, o.traceparent, o.attempts
+         FROM alerts a JOIN outbox o USING (alert_id)
+        WHERE a.dedupe_key = $1 AND o.published_at IS NULL`,
+      [dedupeKey],
+    );
+    return rows[0] ? toEntry(rows[0]) : null;
+  }
+
+  async countPendingOutbox(): Promise<{ pending: number; oldestAgeMs: number }> {
+    const { rows } = await this.pool.query<{ pending: string; oldest_ms: string | null }>(
+      `SELECT count(*) AS pending,
+              (EXTRACT(EPOCH FROM (now() - min(created_at))) * 1000)::bigint AS oldest_ms
+         FROM outbox WHERE published_at IS NULL`,
+    );
+    return { pending: Number(rows[0].pending), oldestAgeMs: Number(rows[0].oldest_ms ?? 0) };
   }
 }

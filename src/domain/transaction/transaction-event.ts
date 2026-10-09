@@ -18,6 +18,17 @@ export interface TransactionEvent {
   readonly amount: Money;
   readonly customerId: string;
   readonly accountId: string;
+  readonly counterparty?: {
+    readonly idToken?: string;
+    readonly institutionCode?: string;
+    readonly firstSeenAt?: string;
+  };
+  readonly merchant?: {
+    readonly id?: string;
+    readonly mcc?: string;
+    readonly country?: string;
+  };
+  readonly declineReason?: string;
   readonly traceId?: string;
 }
 
