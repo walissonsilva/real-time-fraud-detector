@@ -4,3 +4,4 @@ coverage/
 .env
 *.tsbuildinfo
 .codex-remote-attachments/
+load/k6/results/

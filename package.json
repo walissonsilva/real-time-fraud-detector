@@ -20,7 +20,8 @@
     "infra:up": "docker compose up -d --wait postgres redis localstack",
     "infra:down": "docker compose down -v",
     "test:int": "set -a; . ./.env; set +a; jest --config test/jest-int.config.js --runInBand",
-    "load": "set -a; . ./.env; set +a; ts-node scripts/load-test.ts"
+    "load": "set -a; . ./.env; set +a; ts-node scripts/load-test.ts",
+    "load:k6": "mkdir -p load/k6/results && docker run --rm -i --user \"$(id -u):$(id -g)\" --add-host=host.docker.internal:host-gateway -v \"$PWD/load/k6:/scripts:ro\" -v \"$PWD/load/k6/results:/results\" -e RATE -e DURATION_SECONDS -e DRAIN_SECONDS -e ALERT_RATE -e ACCOUNTS -e P95_MS -e P99_MS -e AWS_ENDPOINT=${AWS_ENDPOINT:-http://host.docker.internal:4566} grafana/k6:0.55.0 run /scripts/fraud-latency.js"
   },
   "dependencies": {
     "@aws-sdk/client-sns": "^3.1147.0",
