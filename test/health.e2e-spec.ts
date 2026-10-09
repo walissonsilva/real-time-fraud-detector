@@ -21,4 +21,9 @@ describe('health (requer `npm run infra:up`)', () => {
     const res = await request(app.getHttpServer()).get('/health/ready').expect(200);
     expect(res.body.checks).toEqual({ postgres: 'up', redis: 'up' });
   });
+  it('metrics expõe outbox_pending e a idade da linha mais antiga', async () => {
+    const res = await request(app.getHttpServer()).get('/metrics').expect(200);
+    expect(res.text).toMatch(/^outbox_pending \d+$/m);
+    expect(res.text).toMatch(/^outbox_oldest_pending_age_ms \d+$/m);
+  });
 });

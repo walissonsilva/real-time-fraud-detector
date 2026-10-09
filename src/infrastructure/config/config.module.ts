@@ -16,7 +16,16 @@ export interface AppConfig {
   snsPublishTimeoutMs: number;
   outboxRelay: { intervalMs: number; minAgeMs: number; batchSize: number };
   rulesConfigPath: string;
-  consumers: { enabled: boolean; transactionPollers: number };
+  consumers: { enabled: boolean; channelsEnabled: boolean; transactionPollers: number; channelPollers: number };
+  channels: {
+    maxAttempts: number;
+    baseDelayMs: number;
+    maxDelayMs: number;
+    sendTimeoutMs: number;
+    /** Injeção de falha nos provedores simulados (demonstração/testes). */
+    failAntifraud: boolean;
+    failCustomer: boolean;
+  };
 }
 
 export const APP_CONFIG = Symbol('APP_CONFIG');
@@ -62,7 +71,17 @@ export function loadConfig(): AppConfig {
     rulesConfigPath: optional('RULES_CONFIG_PATH', 'config/rules.json'),
     consumers: {
       enabled: optional('CONSUMERS_ENABLED', 'true') !== 'false',
+      channelsEnabled: optional('CHANNEL_CONSUMERS_ENABLED', 'true') !== 'false',
       transactionPollers: Math.max(1, int('SQS_TRANSACTION_POLLERS', 4)),
+      channelPollers: Math.max(1, int('SQS_CHANNEL_POLLERS', 2)),
+    },
+    channels: {
+      maxAttempts: Math.max(1, int('CHANNEL_DELIVERY_MAX_ATTEMPTS', 3)),
+      baseDelayMs: int('CHANNEL_DELIVERY_BASE_DELAY_MS', 200),
+      maxDelayMs: int('CHANNEL_DELIVERY_MAX_DELAY_MS', 2000),
+      sendTimeoutMs: int('CHANNEL_SEND_TIMEOUT_MS', 2000),
+      failAntifraud: optional('CHANNEL_ANTIFRAUD_FAIL', 'false') === 'true',
+      failCustomer: optional('CHANNEL_CUSTOMER_FAIL', 'false') === 'true',
     },
   };
 }

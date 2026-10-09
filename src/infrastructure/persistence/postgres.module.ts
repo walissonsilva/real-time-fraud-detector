@@ -2,6 +2,8 @@ import { Global, Inject, Injectable, Module, OnApplicationShutdown } from '@nest
 import { Pool } from 'pg';
 import { APP_CONFIG, AppConfig } from '../config/config.module';
 import { ALERT_REPOSITORY } from '../../application/ports/alert-repository.port';
+import { DELIVERY_REPOSITORY } from '../../application/ports/delivery-repository.port';
+import { PostgresDeliveryRepository } from './postgres-delivery.repository';
 import { PostgresAlertRepository } from './postgres-alert.repository';
 import { PG_POOL } from './pg-pool.token';
 
@@ -26,7 +28,8 @@ class PoolLifecycle implements OnApplicationShutdown {
     },
     PoolLifecycle,
     { provide: ALERT_REPOSITORY, useClass: PostgresAlertRepository },
+    { provide: DELIVERY_REPOSITORY, useClass: PostgresDeliveryRepository },
   ],
-  exports: [PG_POOL, ALERT_REPOSITORY],
+  exports: [PG_POOL, ALERT_REPOSITORY, DELIVERY_REPOSITORY],
 })
 export class PostgresModule {}

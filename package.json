@@ -11,7 +11,7 @@
     "start": "nest start",
     "start:dev": "nest start --watch",
     "start:prod": "node dist/main.js",
-    "lint": "eslint \"{src,test}/**/*.ts\"",
+    "lint": "eslint \"{src,test,scripts}/**/*.ts\"",
     "test": "jest",
     "test:cov": "jest --coverage",
     "test:e2e": "set -a; . ./.env; set +a; jest --config test/jest-e2e.config.js --runInBand",
@@ -19,7 +19,8 @@
     "contracts:validate": "node docs/contratos/validate-contracts.mjs",
     "infra:up": "docker compose up -d --wait postgres redis localstack",
     "infra:down": "docker compose down -v",
-    "test:int": "set -a; . ./.env; set +a; jest --config test/jest-int.config.js --runInBand"
+    "test:int": "set -a; . ./.env; set +a; jest --config test/jest-int.config.js --runInBand",
+    "load": "set -a; . ./.env; set +a; ts-node scripts/load-test.ts"
   },
   "dependencies": {
     "@aws-sdk/client-sns": "^3.1147.0",

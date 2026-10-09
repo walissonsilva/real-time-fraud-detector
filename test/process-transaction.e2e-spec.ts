@@ -7,6 +7,7 @@ import { Test } from '@nestjs/testing';
 import { GetQueueAttributesCommand, GetQueueUrlCommand, SendMessageCommand } from '@aws-sdk/client-sqs';
 import { Pool } from 'pg';
 import { AppModule } from '../src/app.module';
+import { DELIVERY_REPOSITORY } from '../src/application/ports/delivery-repository.port';
 import { ALERT_REPOSITORY } from '../src/application/ports/alert-repository.port';
 import { ConfigModule } from '../src/infrastructure/config/config.module';
 import { MessagingModule } from '../src/infrastructure/messaging/messaging.module';
@@ -14,7 +15,11 @@ import { CHANNEL_QUEUES, drain, newSqs, purge, readExample } from './integration
 
 /** Repositório de mentira: o teste de inicialização não deve abrir conexões que vazem handles. */
 @Global()
-@Module({ providers: [{ provide: ALERT_REPOSITORY, useValue: {} }], exports: [ALERT_REPOSITORY] })
+@Module({ providers: [
+    { provide: ALERT_REPOSITORY, useValue: {} },
+    { provide: DELIVERY_REPOSITORY, useValue: {} },
+  ],
+  exports: [ALERT_REPOSITORY, DELIVERY_REPOSITORY], })
 class StubPersistenceModule {}
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -73,6 +78,7 @@ describe('processamento ponta a ponta: SQS → regras → outbox → SNS → can
     process.env.DATABASE_URL ??= 'postgres://fraud:fraud@localhost:55432/fraud';
     process.env.REDIS_URL ??= 'redis://localhost:6379';
     process.env.RULES_CONFIG_PATH = 'config/rules.json';
+    process.env.CHANNEL_CONSUMERS_ENABLED = 'false'; // o teste lê as filas de canal diretamente
     pool = new Pool({ connectionString: process.env.DATABASE_URL });
     queueUrl = (await sqs.send(new GetQueueUrlCommand({ QueueName: 'transactions' }))).QueueUrl!;
     await purge(sqs, ['transactions', ...CHANNEL_QUEUES]);

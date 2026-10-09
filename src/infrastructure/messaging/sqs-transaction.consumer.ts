@@ -12,6 +12,7 @@ import { DLQ_PUBLISHER, DlqPublisher } from '../../application/ports/dlq-publish
 import { EVENT_VALIDATOR, EventValidator, ValidationResult } from '../../application/ports/event-validator.port';
 import { LOGGER, Logger, METRICS, Metrics } from '../../application/ports/observability.port';
 import { ProcessTransaction, ProcessingError } from '../../application/use-cases/process-transaction';
+import { RejectInvalidEvent } from '../../application/use-cases/reject-invalid-event';
 import { buildDlqMessage, DlqStage } from '../../domain/dlq/dlq-message';
 import { IngestedEvent } from '../../domain/transaction/transaction-event';
 import { safeError } from '../observability/logger';
@@ -20,27 +21,13 @@ import { APP_CONFIG, AppConfig } from '../config/config.module';
 
 /** Retentativas aplicativas após a primeira tentativa (FR-003a). */
 export const MAX_RETRIES = 3;
+/** Long polling curto: o desligamento espera o poll em andamento terminar (e processa o que ele trouxe) em vez de abortá-lo, para não perder mensagens para uma conexão morta. */
+const POLL_WAIT_S = 2;
 const MAX_VISIBILITY_BACKOFF_S = 30;
-
-export type InvalidMessage = Extract<ValidationResult, { ok: false }>;
-
-/**
- * Ponto de extensão da rejeição de eventos inválidos (US2). Deve enviar o evento à DLQ e resolver
- * somente após o envio ser confirmado; só então a mensagem original é removida da fila.
- * Sem handler, a mensagem é deixada na fila (a DLQ nativa da fila a recolhe após `maxReceiveCount`).
- */
-export type InvalidMessageHandler = (ctx: {
-  rawBody: string;
-  result: InvalidMessage;
-  message: Message;
-  source: string;
-}) => Promise<void>;
 
 @Injectable()
 export class SqsTransactionConsumer implements OnApplicationBootstrap, OnApplicationShutdown {
-  private onInvalid?: InvalidMessageHandler;
   private running = false;
-  private abort = new AbortController();
   private loops: Promise<void>[] = [];
   private queueUrl?: string;
 
@@ -49,14 +36,11 @@ export class SqsTransactionConsumer implements OnApplicationBootstrap, OnApplica
     @Inject(APP_CONFIG) private readonly config: AppConfig,
     @Inject(EVENT_VALIDATOR) private readonly validator: EventValidator,
     private readonly processTransaction: ProcessTransaction,
+    private readonly rejectInvalid: RejectInvalidEvent,
     @Inject(DLQ_PUBLISHER) private readonly dlq: DlqPublisher,
     @Inject(LOGGER) private readonly logger: Logger,
     @Inject(METRICS) private readonly metrics: Metrics,
   ) {}
-
-  setInvalidMessageHandler(handler: InvalidMessageHandler) {
-    this.onInvalid = handler;
-  }
 
   /** Falha ao resolver a fila (ex.: configuração errada) derruba a inicialização em vez de rodar sem consumir. */
   async onApplicationBootstrap() {
@@ -71,14 +55,12 @@ export class SqsTransactionConsumer implements OnApplicationBootstrap, OnApplica
     if (this.running) return;
     this.queueUrl = await this.resolveQueueUrl();
     this.running = true;
-    this.abort = new AbortController();
     this.loops = Array.from({ length: pollers }, () => this.pollLoop());
     this.logger.info('consumidor de transações iniciado', { queue: this.config.queues.transactions, pollers });
   }
 
   async stop(): Promise<void> {
     this.running = false;
-    this.abort.abort();
     await Promise.allSettled(this.loops);
     this.loops = [];
   }
@@ -96,11 +78,10 @@ export class SqsTransactionConsumer implements OnApplicationBootstrap, OnApplica
           new ReceiveMessageCommand({
             QueueUrl: this.queueUrl,
             MaxNumberOfMessages: 10,
-            WaitTimeSeconds: 5,
+            WaitTimeSeconds: POLL_WAIT_S,
             MessageSystemAttributeNames: ['SentTimestamp', 'ApproximateReceiveCount'],
             MessageAttributeNames: ['traceparent'],
           }),
-          { abortSignal: this.abort.signal },
         );
         await Promise.all(Messages.map((m) => this.handle(m)));
       } catch (err) {
@@ -140,16 +121,13 @@ export class SqsTransactionConsumer implements OnApplicationBootstrap, OnApplica
     }
   }
 
-  private async handleInvalid(message: Message, rawBody: string, result: InvalidMessage) {
-    this.metrics.increment('events_rejected_total', { reason: result.reasonCode });
-    if (!this.onInvalid) {
-      this.logger.warn('evento inválido sem tratamento de rejeição configurado; mensagem mantida na fila', {
-        reasonCode: result.reasonCode,
-        detail: result.detail,
-      });
-      return;
-    }
-    await this.onInvalid({ rawBody, result, message, source: this.config.queues.transactions });
+  /** Exclui o original só depois que o envio à DLQ foi confirmado; nunca chama ProcessTransaction (FR-008). */
+  private async handleInvalid(message: Message, rawBody: string, result: Extract<ValidationResult, { ok: false }>) {
+    await this.rejectInvalid.execute({
+      rawBody,
+      result,
+      traceparent: message.MessageAttributes?.traceparent?.StringValue,
+    });
     await this.delete(message);
   }
 

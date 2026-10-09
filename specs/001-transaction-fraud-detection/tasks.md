@@ -100,14 +100,14 @@ description: "Task list — Detecção de Fraude em Transações (Ingestão, Val
 
 ### Tests for User Story 2 ⚠️
 
-- [ ] T029 [P] [US2] Teste unitário `src/application/use-cases/reject-invalid-event.spec.ts`: cada `reasonCode` (`DESERIALIZATION_ERROR`, `SCHEMA_INVALID`, `UNSUPPORTED_VERSION`) gera `DlqMessage` com etapa `VALIDATION`, detalhe só com `fieldPath`/código, original preservado, métrica `events_rejected_total` incrementada e nenhum log contém o conteúdo (FR-007, FR-009, FR-008)
-- [ ] T030 [P] [US2] Teste de integração `test/integration/invalid-events.int-spec.ts` (cenário 6 do quickstart): publica todos os exemplos `transaction-event.*.invalid.json` + JSON truncado + versão `2.0`; verifica DLQ com motivo/original, ausência de linhas em `alerts`/`outbox`, remoção da mensagem de entrada e logs sem PII (SC-001, SC-007)
+- [x] T029 [P] [US2] Teste unitário `src/application/use-cases/reject-invalid-event.spec.ts`: cada `reasonCode` (`DESERIALIZATION_ERROR`, `SCHEMA_INVALID`, `UNSUPPORTED_VERSION`) gera `DlqMessage` com etapa `VALIDATION`, detalhe só com `fieldPath`/código, original preservado, métrica `events_rejected_total` incrementada e nenhum log contém o conteúdo (FR-007, FR-009, FR-008)
+- [x] T030 [P] [US2] Teste de integração `test/integration/invalid-events.int-spec.ts` (cenário 6 do quickstart): publica todos os exemplos `transaction-event.*.invalid.json` + JSON truncado + versão `2.0`; verifica DLQ com motivo/original, ausência de linhas em `alerts`/`outbox`, remoção da mensagem de entrada e logs sem PII (SC-001, SC-007)
 
 ### Implementation for User Story 2
 
-- [ ] T031 [US2] Implementar `src/application/use-cases/reject-invalid-event.ts`: recebe a mensagem bruta + resultado de validação inválida, monta o `DlqMessage` (etapa `VALIDATION`), chama `DlqPublisher`, registra log estruturado/métrica sem PII; falha ao publicar na DLQ propaga erro (mensagem não é excluída)
-- [ ] T032 [US2] Em `src/infrastructure/messaging/sqs-transaction.consumer.ts`, implementar o ponto de extensão `onInvalid` (T026): validação inválida → `RejectInvalidEvent` e exclusão da mensagem original somente após o envio à DLQ ser confirmado; nunca chama `ProcessTransaction` (FR-008)
-- [ ] T033 [US2] Teste e2e `test/reject-invalid.e2e-spec.ts` cobrindo mistura de válidos e inválidos na mesma fila (inválidos não bloqueiam os válidos) e confirmar T029/T030 verdes
+- [x] T031 [US2] Implementar `src/application/use-cases/reject-invalid-event.ts`: recebe a mensagem bruta + resultado de validação inválida, monta o `DlqMessage` (etapa `VALIDATION`), chama `DlqPublisher`, registra log estruturado/métrica sem PII; falha ao publicar na DLQ propaga erro (mensagem não é excluída)
+- [x] T032 [US2] Em `src/infrastructure/messaging/sqs-transaction.consumer.ts`, implementar o ponto de extensão `onInvalid` (T026): validação inválida → `RejectInvalidEvent` e exclusão da mensagem original somente após o envio à DLQ ser confirmado; nunca chama `ProcessTransaction` (FR-008)
+- [x] T033 [US2] Teste e2e `test/reject-invalid.e2e-spec.ts` cobrindo mistura de válidos e inválidos na mesma fila (inválidos não bloqueiam os válidos) e confirmar T029/T030 verdes
 
 **Checkpoint**: US1 e US2 funcionam independentemente
 
@@ -121,18 +121,18 @@ description: "Task list — Detecção de Fraude em Transações (Ingestão, Val
 
 ### Tests for User Story 3 ⚠️
 
-- [ ] T034 [P] [US3] Teste unitário `src/domain/alert/delivery-id.spec.ts` e `src/application/use-cases/deliver-alert.spec.ts` (provedor fake): `deliveryId = sha256("alert-delivery:v1:" + alertId + ":" + canal)` estável; entrega já `DELIVERED` não é reenviada (FR-017a/FR-024); falha de um canal não afeta o outro (FR-021); esgotadas as tentativas → `DlqMessage` `CHANNEL_DELIVERY`/`MAX_RETRIES_EXCEEDED` e `status=DEAD_LETTERED` (FR-023)
-- [ ] T035 [P] [US3] Teste unitário `src/infrastructure/channels/customer-push.provider.spec.ts`: payload ao cliente contém só tipo, valor formatado e data + orientação de confirmar/contestar; nunca contém regras, pontuação, severidade ou evidências (FR-025); validar `AlertDelivery v1` com `docs/contratos/examples/alert-delivery.*` (o exemplo `customer-on-internal-channel.invalid.json` deve ser rejeitado)
-- [ ] T036 [P] [US3] Teste de integração `test/integration/channel-delivery.int-spec.ts` (cenários 1 e 5 do quickstart): alerta no SNS chega às duas filas de canal; provedor do cliente falhando → canal interno entregue, cliente retentado e, ao esgotar, DLQ do canal; latência de detecção não aumenta (SC-005)
+- [x] T034 [P] [US3] Teste unitário `src/domain/alert/delivery-id.spec.ts` e `src/application/use-cases/deliver-alert.spec.ts` (provedor fake): `deliveryId = sha256("alert-delivery:v1:" + alertId + ":" + canal)` estável; entrega já `DELIVERED` não é reenviada (FR-017a/FR-024); falha de um canal não afeta o outro (FR-021); esgotadas as tentativas → `DlqMessage` `CHANNEL_DELIVERY`/`MAX_RETRIES_EXCEEDED` e `status=DEAD_LETTERED` (FR-023)
+- [x] T035 [P] [US3] Teste unitário `src/infrastructure/channels/customer-push.provider.spec.ts`: payload ao cliente contém só tipo, valor formatado e data + orientação de confirmar/contestar; nunca contém regras, pontuação, severidade ou evidências (FR-025); validar `AlertDelivery v1` com `docs/contratos/examples/alert-delivery.*` (o exemplo `customer-on-internal-channel.invalid.json` deve ser rejeitado)
+- [x] T036 [P] [US3] Teste de integração `test/integration/channel-delivery.int-spec.ts` (cenários 1 e 5 do quickstart): alerta no SNS chega às duas filas de canal; provedor do cliente falhando → canal interno entregue, cliente retentado e, ao esgotar, DLQ do canal; latência de detecção não aumenta (SC-005)
 
 ### Implementation for User Story 3
 
-- [ ] T037 [P] [US3] Criar `src/domain/alert/delivery-id.ts` (hash estável) e `src/domain/alert/alert-delivery.ts` (tipo espelhando `alert-delivery.v1` com `audience`, `channel`, `template`)
-- [ ] T038 [P] [US3] Criar `src/application/ports/delivery-repository.port.ts` e `src/infrastructure/persistence/postgres-delivery.repository.ts` sobre a tabela `deliveries`: `register(delivery)` com `INSERT … ON CONFLICT DO NOTHING`, `markDelivered`, `markDeadLettered`, `recordAttempt(error)`, `isDelivered(deliveryId)`
-- [ ] T039 [P] [US3] Implementar `src/infrastructure/channels/antifraud-queue.provider.ts` (canal `ANTIFRAUD_QUEUE`, `audience=ANTIFRAUD_TEAM`, alerta completo) e `src/infrastructure/channels/customer-push.provider.ts` (canal `PUSH`, `audience=CUSTOMER`, `template.id=suspicious-transaction.v1`, `params` só com tipo, valor formatado e data; provedor simulado com falha injetável por configuração para testes), ambos implementando `NotificationProvider`
-- [ ] T040 [US3] Implementar `src/application/use-cases/deliver-alert.ts`: calcula `deliveryId`, registra a entrega, ignora se `DELIVERED`, envia com timeout + retry/backoff (T007), marca `DELIVERED`; ao esgotar, publica `DlqMessage` (`CHANNEL_DELIVERY`, `MAX_RETRIES_EXCEEDED`, sem PII) na DLQ do canal, marca `DEAD_LETTERED`; métrica `deliveries_total{channel,status}` e propagação de `traceId` (FR-029)
-- [ ] T041 [US3] Implementar `src/infrastructure/messaging/sqs-channel.consumer.ts`: um consumidor independente por canal lendo a fila FIFO do canal (corpo = `FraudAlert v1` bruto, `RawMessageDelivery`), invoca `DeliverAlert` com o provedor do canal; exclui a mensagem só após `DELIVERED` ou `DEAD_LETTERED` durável; falha de um canal não bloqueia o outro (loops isolados)
-- [ ] T042 [US3] Registrar provedores, repositório de entregas e consumidores de canal em `src/infrastructure/messaging/messaging.module.ts`/`src/app.module.ts`; teste e2e `test/channel-delivery.e2e-spec.ts` com falha injetada no canal do cliente
+- [x] T037 [P] [US3] Criar `src/domain/alert/delivery-id.ts` (hash estável) e `src/domain/alert/alert-delivery.ts` (tipo espelhando `alert-delivery.v1` com `audience`, `channel`, `template`)
+- [x] T038 [P] [US3] Criar `src/application/ports/delivery-repository.port.ts` e `src/infrastructure/persistence/postgres-delivery.repository.ts` sobre a tabela `deliveries`: `register(delivery)` com `INSERT … ON CONFLICT DO NOTHING`, `markDelivered`, `markDeadLettered`, `recordAttempt(error)`, `isDelivered(deliveryId)`
+- [x] T039 [P] [US3] Implementar `src/infrastructure/channels/antifraud-queue.provider.ts` (canal `ANTIFRAUD_QUEUE`, `audience=ANTIFRAUD_TEAM`, alerta completo) e `src/infrastructure/channels/customer-push.provider.ts` (canal `PUSH`, `audience=CUSTOMER`, `template.id=suspicious-transaction.v1`, `params` só com tipo, valor formatado e data; provedor simulado com falha injetável por configuração para testes), ambos implementando `NotificationProvider`
+- [x] T040 [US3] Implementar `src/application/use-cases/deliver-alert.ts`: calcula `deliveryId`, registra a entrega, ignora se `DELIVERED`, envia com timeout + retry/backoff (T007), marca `DELIVERED`; ao esgotar, publica `DlqMessage` (`CHANNEL_DELIVERY`, `MAX_RETRIES_EXCEEDED`, sem PII) na DLQ do canal, marca `DEAD_LETTERED`; métrica `deliveries_total{channel,status}` e propagação de `traceId` (FR-029)
+- [x] T041 [US3] Implementar `src/infrastructure/messaging/sqs-channel.consumer.ts`: um consumidor independente por canal lendo a fila FIFO do canal (corpo = `FraudAlert v1` bruto, `RawMessageDelivery`), invoca `DeliverAlert` com o provedor do canal; exclui a mensagem só após `DELIVERED` ou `DEAD_LETTERED` durável; falha de um canal não bloqueia o outro (loops isolados)
+- [x] T042 [US3] Registrar provedores, repositório de entregas e consumidores de canal em `src/infrastructure/messaging/messaging.module.ts`/`src/app.module.ts`; teste e2e `test/channel-delivery.e2e-spec.ts` com falha injetada no canal do cliente
 
 **Checkpoint**: Todas as stories independentemente funcionais
 
@@ -142,13 +142,13 @@ description: "Task list — Detecção de Fraude em Transações (Ingestão, Val
 
 **Purpose**: Garantias transversais e validação final
 
-- [ ] T043 [P] Teste de propriedade/determinismo `src/application/use-cases/determinism.spec.ts`: mesmo evento em ordens e repetições diferentes e intercalado com outros eventos produz a mesma decisão, sem leitura de estado externo (SC-003, FR-011)
-- [ ] T044 [P] Teste de invariantes `test/integration/no-silent-loss.int-spec.ts`: todo evento de entrada termina em exatamente um estado (sem suspeita, alerta gerado, DLQ) e toda entrega em `DELIVERED` ou DLQ (SC-006)
-- [ ] T045 [P] Exposição de métricas e verificação (`/metrics` ou equivalente em `src/infrastructure/health/`) com `outbox_pending` e idade da linha pendente mais antiga; revisar que logs/métricas não contêm PII em todos os adaptadores (FR-027, FR-028, SC-007, SC-008)
-- [ ] T046 [P] Garantir atributos de rastreamento: `traceId`/`traceparent` propagados do evento até alerta, SNS e entregas (FR-029); teste em `test/integration/trace-propagation.int-spec.ts`
-- [ ] T047 [P] Atualizar `README.md` (como rodar, regras de exemplo, topologia SNS/SQS) e referenciar `specs/001-transaction-fraud-detection/quickstart.md`
-- [ ] T048 Teste de carga leve (script em `test/load/` ou `scripts/`) para verificar SC-004 (p99 ≤ 500 ms, alvo 8.000 TPS) e registrar se o teto do SNS FIFO (D-06) foi atingido
-- [ ] T049 Executar `npm run lint && npm test && npm run test:int && npm run test:e2e && npm run contracts:validate` e percorrer os 6 cenários de `quickstart.md`; corrigir divergências
+- [x] T043 [P] Teste de propriedade/determinismo `src/application/use-cases/determinism.spec.ts`: mesmo evento em ordens e repetições diferentes e intercalado com outros eventos produz a mesma decisão, sem leitura de estado externo (SC-003, FR-011)
+- [x] T044 [P] Teste de invariantes `test/integration/no-silent-loss.int-spec.ts`: todo evento de entrada termina em exatamente um estado (sem suspeita, alerta gerado, DLQ) e toda entrega em `DELIVERED` ou DLQ (SC-006)
+- [x] T045 [P] Exposição de métricas e verificação (`/metrics` ou equivalente em `src/infrastructure/health/`) com `outbox_pending` e idade da linha pendente mais antiga; revisar que logs/métricas não contêm PII em todos os adaptadores (FR-027, FR-028, SC-007, SC-008)
+- [x] T046 [P] Garantir atributos de rastreamento: `traceId`/`traceparent` propagados do evento até alerta, SNS e entregas (FR-029); teste em `test/integration/trace-propagation.int-spec.ts`
+- [x] T047 [P] Atualizar `README.md` (como rodar, regras de exemplo, topologia SNS/SQS) e referenciar `specs/001-transaction-fraud-detection/quickstart.md`
+- [x] T048 Teste de carga leve (script em `test/load/` ou `scripts/`) para verificar SC-004 (p99 ≤ 500 ms, alvo 8.000 TPS) e registrar se o teto do SNS FIFO (D-06) foi atingido
+- [x] T049 Executar `npm run lint && npm test && npm run test:int && npm run test:e2e && npm run contracts:validate` e percorrer os 6 cenários de `quickstart.md`; corrigir divergências
 
 ---
 
