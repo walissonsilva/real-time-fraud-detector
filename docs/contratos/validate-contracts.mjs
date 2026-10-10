@@ -9,6 +9,7 @@ import { fileURLToPath } from 'node:url';
 import { existsSync } from 'node:fs';
 import yaml from 'js-yaml';
 import Ajv2020 from 'ajv/dist/2020.js';
+import Ajv04 from 'ajv-draft-04';
 import addFormats from 'ajv-formats';
 
 const dir = dirname(fileURLToPath(import.meta.url));
@@ -16,6 +17,7 @@ const read = (p) => JSON.parse(readFileSync(p, 'utf8'));
 const schemas = {
   'transaction-event': 'transaction-event.v1.schema.json',
   rule: 'rule.v1.schema.json',
+  'rules-document': 'rules-document.v1.schema.json', // referencia rule.v1 por $id: compilar depois de 'rule'
   'rule-version': 'rule-version.v1.schema.json',
   'fraud-alert': 'fraud-alert.v1.schema.json',
   'alert-delivery': 'alert-delivery.v1.schema.json',
@@ -26,6 +28,11 @@ const ajv = new Ajv2020({ strict: true, strictRequired: false, allowUnionTypes: 
 addFormats(ajv);
 const validators = {};
 for (const [name, file] of Object.entries(schemas)) validators[name] = ajv.compile(read(join(dir, file)));
+
+// Espelho estrutural em draft 4 (único draft que o validador do perfil do AppConfig aceita).
+const ajv04 = new Ajv04({ strict: false, allowUnionTypes: true, allErrors: true });
+addFormats(ajv04);
+const rulesDocumentDraft4 = ajv04.compile(read(join(dir, 'rules-document.v1.draft4.schema.json')));
 
 let failures = 0;
 const check = (label, ok, expected, errors) => {
@@ -47,6 +54,16 @@ for (const f of readdirSync(join(dir, 'examples')).sort()) {
   if (!expected && !f.endsWith('.invalid.json')) { failures++; console.log(`FAIL  ${f}  (use .valid.json ou .invalid.json)`); continue; }
   check(`examples/${f}`, validators[name](read(join(dir, 'examples', f))), expected, validators[name].errors);
 }
+// 2b) o espelho draft 4 deve aceitar e rejeitar os mesmos exemplos de rules-document que o schema 2020-12
+for (const f of readdirSync(join(dir, 'examples')).sort().filter((n) => n.startsWith('rules-document.'))) {
+  const expected = f.endsWith('.valid.json');
+  check(`rules-document.v1.draft4 x examples/${f}`, rulesDocumentDraft4(read(join(dir, 'examples', f))), expected, rulesDocumentDraft4.errors);
+}
+// o config/rules.json usado em dev também deve passar nos dois
+const devRules = { rules: read(join(dir, '..', '..', 'config', 'rules.json')).rules };
+check('config/rules.json (2020-12)', validators['rules-document'](devRules), true, validators['rules-document'].errors);
+check('config/rules.json (draft 4)', rulesDocumentDraft4(devRules), true, rulesDocumentDraft4.errors);
+
 // 3) OpenAPI: todo $ref resolve (interno ou arquivo local) e RuleVersion aceita os metadados de versão
 const openapi = yaml.load(readFileSync(join(dir, 'openapi.v1.yaml'), 'utf8'));
 const refs = [];

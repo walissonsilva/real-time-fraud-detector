@@ -14,6 +14,7 @@
 | 5 | `AlertDelivery v1` | Mensagem interna | Roteador → adaptador de canal | [alert-delivery.v1.schema.json](alert-delivery.v1.schema.json) |
 | 6 | `DlqMessage v1` | Envelope | Qualquer etapa → DLQ → *redrive* | [dlq-message.v1.schema.json](dlq-message.v1.schema.json) |
 | 7 | Webhook de saída | Convenção HTTP | Motor → sistema antifraude interno | seção 5 abaixo |
+| 8 | `RulesDocument v1` | Documento de configuração | Operador → AWS AppConfig → motor (instâncias) | [rules-document.v1.schema.json](rules-document.v1.schema.json) (2020-12) e [rules-document.v1.draft4.schema.json](rules-document.v1.draft4.schema.json) (espelho estrutural em draft 4, validador do perfil do AppConfig) |
 
 Exemplos válidos e inválidos estão em [examples/](examples/). Convenção de nome: `<contrato>.<caso>.valid.json` deve passar; `.invalid.json` deve falhar. Para conferir: `node docs/contratos/validate-contracts.mjs` (precisa de `ajv` e `ajv-formats`; vira teste de contrato na CI, RNF-51).
 
