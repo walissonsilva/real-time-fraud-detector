@@ -1,10 +1,14 @@
 #!/usr/bin/env bash
-# Teste de carga k6 na AWS (docs/teste-de-carga-aws-1000tps.md): publica a imagem do k6, aplica o override
-# On-Demand (loadtest.tfvars), cria a fila-sink assinada no tópico, roda o smoke e a execução principal em
-# tasks Fargate, grava o resumo/HTML localmente, coleta o CloudWatch, avalia C1-C11 e reverte o override.
+# Teste de carga k6 na AWS (docs/teste-de-carga-aws-1000tps.md e docs/teste-de-carga-aws-runner-ec2.md):
+# publica a imagem do k6, aplica o override On-Demand (loadtest.tfvars), cria a fila-sink assinada no tópico,
+# roda o smoke e a execução principal (em EC2 Spot por padrão, ou em task Fargate), grava o resumo/HTML
+# localmente, coleta o CloudWatch, avalia C1-C11 e reverte o override.
 #
 # Uso: loadtest.sh <lean|full> [--rate 1000] [--duration 300] [--warmup 90] [--drain 60] [--alert-rate 0.01]
+#                  [--runner ec2|fargate] [--instance-type c6i.xlarge] [--on-demand]
 #                  [--cpu 2048 --memory 4096] [--skip-smoke] [--keep] [--pause] [--purge] [--yes]
+#   --runner        onde roda o k6: ec2 (padrão; instância Spot via SSM) ou fargate (task; usa --cpu/--memory)
+#   --on-demand     com --runner ec2: instância On-Demand em vez de Spot (fallback sem capacidade Spot)
 #   --keep   não reverte o override On-Demand ao final (para repetir sem reaplicar)
 #   --pause  chama pause.sh ao final (ECS=0, RDS parado)
 #   --purge  esvazia transactions e DLQs se houver resíduos (por padrão aborta)
@@ -14,6 +18,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 PROFILE="${1:-}"; shift || true
 RATE=1000; DURATION=300; WARMUP=90; DRAIN=60; ALERT_RATE=0.01; CPU=2048; MEMORY=4096
 SKIP_SMOKE=0; KEEP=0; PAUSE=0; PURGE=0; ASSUME_YES=0
+RUNNER=ec2; USE_SPOT=true; INSTANCE_TYPE=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --rate) RATE="${2:?}"; shift ;;
@@ -23,6 +28,9 @@ while [ $# -gt 0 ]; do
     --alert-rate) ALERT_RATE="${2:?}"; shift ;;
     --cpu) CPU="${2:?}"; shift ;;
     --memory) MEMORY="${2:?}"; shift ;;
+    --runner) RUNNER="${2:?}"; shift ;;
+    --instance-type) INSTANCE_TYPE="${2:?}"; shift ;;
+    --on-demand) USE_SPOT=false ;;
     --skip-smoke) SKIP_SMOKE=1 ;;
     --keep) KEEP=1 ;;
     --pause) PAUSE=1 ;;
@@ -32,6 +40,7 @@ while [ $# -gt 0 ]; do
   esac; shift
 done
 require_profile "$PROFILE"
+case "$RUNNER" in ec2 | fargate) ;; *) die "--runner inválido: $RUNNER (use ec2 ou fargate)" ;; esac
 check_aws
 command -v docker >/dev/null || die "docker não encontrado"
 command -v python3 >/dev/null || die "python3 não encontrado"
@@ -59,11 +68,19 @@ K6_TAG="k6-$(cd "$K6_DIR" && tar --sort=name --mtime='UTC 2020-01-01' --owner=0 
 STEADY_MIN=$(( DURATION / 60 ))
 TOTAL_S=$(( WARMUP + DURATION + DRAIN ))
 log "perfil=$PROFILE app=$APP_TAG k6=$K6_TAG | ${RATE} TPS: aquecimento ${WARMUP}s + steady ${DURATION}s (${STEADY_MIN} min) + drain ${DRAIN}s | alertas ${ALERT_RATE}"
-log "k6: ${CPU} CPU / ${MEMORY} MiB, envio individual (1 SendMessage por evento)"
+if [ "$RUNNER" = ec2 ]; then
+  log "k6: instância EC2 ${INSTANCE_TYPE:-padrão da arquitetura} ($([ "$USE_SPOT" = true ] && echo Spot || echo On-Demand)), envio individual (1 SendMessage por evento)"
+else
+  log "k6: task Fargate ${CPU} CPU / ${MEMORY} MiB, envio individual (1 SendMessage por evento)"
+fi
 confirm "Rodar o teste de carga na AWS? Aplica o override On-Demand (tasks do serviço substituídas) e gera custo."
 
 TF_VARS=(-var-file="$VARFILE" -var-file="$LTFILE" -var "image_tag=$APP_TAG" -var "loadtest_image_tag=$K6_TAG" -var "loadtest_cpu=$CPU" -var "loadtest_memory=$MEMORY")
-TASK=""; SINK_URL=""; SUB_ARN=""; REVERTED=0
+if [ "$RUNNER" = ec2 ]; then
+  TF_VARS+=(-var "enable_loadtest_ec2=true" -var "loadtest_use_spot=$USE_SPOT")
+  [ -n "$INSTANCE_TYPE" ] && TF_VARS+=(-var "loadtest_instance_type=$INSTANCE_TYPE")
+fi
+TASK=""; SINK_URL=""; SUB_ARN=""; REVERTED=0; SSM_CMD=""; SSM_INSTANCE=""; INSTANCE_ID=""; REGISTRY=""; IMAGE=""
 
 revert_override() {
   [ "$REVERTED" = 1 ] && return 0
@@ -77,6 +94,7 @@ revert_override() {
 cleanup() {
   local rc=$?
   trap - EXIT INT TERM
+  if [ -n "$SSM_CMD" ]; then aws ssm cancel-command --command-id "$SSM_CMD" --instance-ids "$SSM_INSTANCE" >/dev/null 2>&1 || true; fi
   if [ -n "$TASK" ]; then aws ecs stop-task --cluster "$CLUSTER" --task "$TASK" --reason "loadtest.sh encerrado" >/dev/null 2>&1 || true; fi
   [ -n "$SUB_ARN" ] && aws sns unsubscribe --subscription-arn "$SUB_ARN" >/dev/null 2>&1 || true
   [ -n "$SINK_URL" ] && aws sqs delete-queue --queue-url "$SINK_URL" >/dev/null 2>&1 || true
@@ -89,6 +107,7 @@ trap cleanup EXIT INT TERM
 # --- 1) repositório ECR do k6 e imagem -------------------------------------------------------------
 tf_apply -target=aws_ecr_repository.loadtest "${TF_VARS[@]}" >/dev/null
 REPO="$(tf output -raw loadtest_ecr_repository_url)"
+REGISTRY="${REPO%%/*}"; IMAGE="$REPO:$K6_TAG"
 if aws ecr describe-images --repository-name "$LT_FAMILY" --image-ids "imageTag=$K6_TAG" >/dev/null 2>&1; then
   log "imagem $K6_TAG já existe no ECR; pulando build"
 else
@@ -107,6 +126,17 @@ aws ecs wait services-stable --cluster "$CLUSTER" --services "$SERVICE"
 RUNNING="$(aws ecs describe-services --cluster "$CLUSTER" --services "$SERVICE" --query 'services[0].runningCount' --output text)"
 log "serviço estável: $RUNNING tasks rodando (On-Demand)"
 
+if [ "$RUNNER" = ec2 ]; then
+  INSTANCE_ID="$(tf output -json loadtest_instance_ids | python3 -c 'import json,sys;print((json.load(sys.stdin) or [""])[0])')"
+  [ -n "$INSTANCE_ID" ] || die "instância do k6 não foi criada"
+  log "instância do k6: $INSTANCE_ID; aguardando o SSM"
+  for i in $(seq 1 60); do
+    [ "$(aws ssm describe-instance-information --filters "Key=InstanceIds,Values=$INSTANCE_ID" --query 'InstanceInformationList[0].PingStatus' --output text 2>/dev/null)" = Online ] && break
+    sleep 10
+  done
+  [ "$(aws ssm describe-instance-information --filters "Key=InstanceIds,Values=$INSTANCE_ID" --query 'InstanceInformationList[0].PingStatus' --output text 2>/dev/null)" = Online ] \
+    || die "a instância $INSTANCE_ID não ficou Online no SSM (Spot sem capacidade? tente --on-demand)"
+fi
 TOPIC_ARN="$(tf output -raw alerts_topic_arn)"
 TOPIC_NAME="$(tf output -raw alerts_topic_name)"
 SUBNETS="$(tf output -json private_subnet_ids | python3 -c 'import json,sys;print(",".join(json.load(sys.stdin)))')"
@@ -155,40 +185,83 @@ run_k6() {
   RUN_BASE="$RESULTS_DIR/${stamp}-aws-${label}-${run_id}"
   mkdir -p "$RESULTS_DIR"
   local env_json
-  env_json="$(python3 - "$run_id" "$rate" "$duration" "$warmup" "$drain" "$arate" "$SINK_URL" "$p95" "$p99" <<'PY'
+  env_json="$(python3 - "$run_id" "$rate" "$duration" "$warmup" "$drain" "$arate" "$SINK_URL" "$p95" "$p99" "$RUNNER" "$AWS_REGION" "$TOPIC_ARN" <<'PY'
 import json, sys
-run_id, rate, duration, warmup, drain, arate, sink, p95, p99 = sys.argv[1:10]
+run_id, rate, duration, warmup, drain, arate, sink, p95, p99, runner, region, topic = sys.argv[1:13]
 env = {"RUN_ID": run_id, "RATE": rate, "DURATION_SECONDS": duration, "WARMUP_SECONDS": warmup, "DRAIN_SECONDS": drain,
        "ALERT_RATE": arate, "SINK_QUEUE_URL": sink}
 if p95: env["P95_MS"] = p95
 if p99: env["P99_MS"] = p99
-print(json.dumps({"containerOverrides": [{"name": "loadtest", "environment": [{"name": k, "value": v} for k, v in env.items()]}]}))
+if runner == "ec2":
+    env.update({"AWS_REGION": region, "SNS_ALERTS_TOPIC_ARN": topic, "SQS_TRANSACTIONS_QUEUE": "transactions", "RESULTS_MODE": "stdout"})
+    print(json.dumps(env))
+else:
+    print(json.dumps({"containerOverrides": [{"name": "loadtest", "environment": [{"name": k, "value": v} for k, v in env.items()]}]}))
 PY
 )"
-  log "[$label] iniciando task k6 (run $run_id): ${rate} TPS, aquecimento ${warmup}s, steady ${duration}s, drain ${drain}s"
+  local stream
   RUN_START="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-  TASK="$(aws ecs run-task --cluster "$CLUSTER" --launch-type FARGATE --task-definition "$LT_FAMILY" \
-    --network-configuration "awsvpcConfiguration={subnets=[$SUBNETS],securityGroups=[$SG],assignPublicIp=DISABLED}" \
-    --overrides "$env_json" --query 'tasks[0].taskArn' --output text)"
-  [ -n "$TASK" ] && [ "$TASK" != None ] || die "falha ao iniciar a task do k6"
-  local task_id="${TASK##*/}" status="" limit=$(( (warmup + duration + drain) / 10 + 90 )) i
-  for i in $(seq 1 "$limit"); do
-    status="$(aws ecs describe-tasks --cluster "$CLUSTER" --tasks "$TASK" --query 'tasks[0].lastStatus' --output text)"
-    [ "$status" = STOPPED ] && break
-    sleep 10
-  done
-  [ "$status" = STOPPED ] || die "a task do k6 não terminou no tempo esperado ($status)"
-  RUN_END="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-  RUN_EXIT="$(aws ecs describe-tasks --cluster "$CLUSTER" --tasks "$TASK" --query 'tasks[0].containers[0].exitCode' --output text)"
-  local reason; reason="$(aws ecs describe-tasks --cluster "$CLUSTER" --tasks "$TASK" --query 'tasks[0].stoppedReason' --output text)"
-  TASK=""
-  log "[$label] task terminou (exit $RUN_EXIT; $reason)"
-  fetch_artifacts "$task_id" "$run_id" "$RUN_BASE"
+  if [ "$RUNNER" = ec2 ]; then
+    log "[$label] iniciando k6 em $INSTANCE_ID (run $run_id): ${rate} TPS, aquecimento ${warmup}s, steady ${duration}s, drain ${drain}s"
+    stream="ec2/$run_id"
+    local params; params="$(python3 - "$env_json" "$REGISTRY" "$IMAGE" "$AWS_REGION" "$LT_LOG_GROUP" "$stream" "$run_id" "$(( warmup + duration + drain + 600 ))" <<'PY'
+import json, shlex, sys
+env, registry, image, region, group, stream, run_id, timeout = sys.argv[1:9]
+envs = " ".join(f"-e {k}={shlex.quote(str(v))}" for k, v in json.loads(env).items())
+script = [
+    "until docker info >/dev/null 2>&1; do sleep 3; done",
+    f"aws ecr get-login-password --region {region} | docker login --username AWS --password-stdin {registry}",
+    f"docker run --rm --name k6-{run_id} --log-driver awslogs --log-opt awslogs-region={region} "
+    f"--log-opt awslogs-group={group} --log-opt awslogs-stream={stream} {envs} {image}",
+]
+print(json.dumps({"commands": script, "executionTimeout": [timeout]}))
+PY
+)"
+    local pfile; pfile="$(mktemp)"; printf '%s' "$params" >"$pfile"
+    SSM_INSTANCE="$INSTANCE_ID"
+    SSM_CMD="$(aws ssm send-command --document-name AWS-RunShellScript --instance-ids "$INSTANCE_ID" \
+      --parameters "file://$pfile" --timeout-seconds 60 --query 'Command.CommandId' --output text)"
+    rm -f "$pfile"
+    [ -n "$SSM_CMD" ] && [ "$SSM_CMD" != None ] || die "falha ao enviar o comando do k6 via SSM"
+    local status="" limit=$(( (warmup + duration + drain) / 10 + 90 )) i
+    for i in $(seq 1 "$limit"); do
+      status="$(aws ssm get-command-invocation --command-id "$SSM_CMD" --instance-id "$INSTANCE_ID" --query 'Status' --output text 2>/dev/null || echo Pending)"
+      case "$status" in Pending | InProgress | Delayed) sleep 10 ;; *) break ;; esac
+    done
+    case "$status" in Pending | InProgress | Delayed) die "o k6 não terminou no tempo esperado ($status)" ;; esac
+    RUN_END="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    RUN_EXIT="$(aws ssm get-command-invocation --command-id "$SSM_CMD" --instance-id "$INSTANCE_ID" --query 'ResponseCode' --output text)"
+    if [ "$status" != Success ] && [ "$RUN_EXIT" = -1 ]; then
+      log "AVISO: comando SSM terminou como $status sem código de saída (instância interrompida?)"
+    fi
+    SSM_CMD=""
+    log "[$label] k6 terminou (exit $RUN_EXIT; SSM $status)"
+  else
+    log "[$label] iniciando task k6 (run $run_id): ${rate} TPS, aquecimento ${warmup}s, steady ${duration}s, drain ${drain}s"
+    TASK="$(aws ecs run-task --cluster "$CLUSTER" --launch-type FARGATE --task-definition "$LT_FAMILY" \
+      --network-configuration "awsvpcConfiguration={subnets=[$SUBNETS],securityGroups=[$SG],assignPublicIp=DISABLED}" \
+      --overrides "$env_json" --query 'tasks[0].taskArn' --output text)"
+    [ -n "$TASK" ] && [ "$TASK" != None ] || die "falha ao iniciar a task do k6"
+    local task_id="${TASK##*/}" status="" limit=$(( (warmup + duration + drain) / 10 + 90 )) i
+    for i in $(seq 1 "$limit"); do
+      status="$(aws ecs describe-tasks --cluster "$CLUSTER" --tasks "$TASK" --query 'tasks[0].lastStatus' --output text)"
+      [ "$status" = STOPPED ] && break
+      sleep 10
+    done
+    [ "$status" = STOPPED ] || die "a task do k6 não terminou no tempo esperado ($status)"
+    RUN_END="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    RUN_EXIT="$(aws ecs describe-tasks --cluster "$CLUSTER" --tasks "$TASK" --query 'tasks[0].containers[0].exitCode' --output text)"
+    local reason; reason="$(aws ecs describe-tasks --cluster "$CLUSTER" --tasks "$TASK" --query 'tasks[0].stoppedReason' --output text)"
+    TASK=""
+    log "[$label] task terminou (exit $RUN_EXIT; $reason)"
+    stream="loadtest/loadtest/$task_id"
+  fi
+  fetch_artifacts "$stream" "$run_id" "$RUN_BASE"
 }
 
 # Remonta os arquivos K6ART|nome|i|n|base64 dos logs da task: <base>.txt/.json/.html
-fetch_artifacts() { # <task_id> <run_id> <base>
-  local task_id="$1" run_id="$2" base="$3" stream="loadtest/loadtest/$1" tries lines
+fetch_artifacts() { # <log stream> <run_id> <base>
+  local stream="$1" run_id="$2" base="$3" tries
   local tmp; tmp="$(mktemp)"
   for tries in 1 2 3 4 5 6; do
     aws logs filter-log-events --log-group-name "$LT_LOG_GROUP" --log-stream-names "$stream" --filter-pattern '"K6ART"' \
@@ -224,10 +297,16 @@ if [ "$PASSED" = 1 ]; then
   [ -f "$RUN_BASE.json" ] || die "sem resumo JSON do k6; veja os logs em $LT_LOG_GROUP"
   log "aguardando 3 min para as métricas do CloudWatch chegarem"; sleep 180
   DLQ_ARGS=(); for q in "${DLQS[@]}"; do DLQ_ARGS+=(--dlq "$q"); done
+  GEN_ARGS=(); GEN_DESC="Fargate $CPU CPU/$MEMORY MiB"
+  if [ "$RUNNER" = ec2 ]; then
+    GEN_ARGS=(--generator-instance "$INSTANCE_ID")
+    GEN_DESC="EC2 $(aws ec2 describe-instances --instance-ids "$INSTANCE_ID" --query 'Reservations[0].Instances[0].[InstanceType,InstanceLifecycle]' --output text | tr '\t' ' ' | sed 's/None/on-demand/')"
+  fi
   python3 "$SCRIPTS_DIR/loadtest_report.py" --summary "$RUN_BASE.json" --start "$RUN_START" --end "$RUN_END" \
     --rate "$RATE" --duration "$DURATION" --warmup "$WARMUP" --cluster "$CLUSTER" --service "$SERVICE" --db "$DB_ID" \
     --topic "$TOPIC_NAME" --desired "$DESIRED" "${DLQ_ARGS[@]}" \
-    --meta "Perfil: $PROFILE | app: $APP_TAG | k6: $K6_TAG ($CPU CPU/$MEMORY MiB) | tasks ECS: $RUNNING" \
+    "${GEN_ARGS[@]}" \
+    --meta "Perfil: $PROFILE | app: $APP_TAG | k6: $K6_TAG ($GEN_DESC) | tasks ECS: $RUNNING" \
     --out "$RUN_BASE-avaliacao.md" || PASSED=0
   log "avaliação: $RUN_BASE-avaliacao.md (k6 exit $MAIN_EXIT)"
 fi

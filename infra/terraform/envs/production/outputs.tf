@@ -40,3 +40,6 @@ output "loadtest_log_group" {
 output "alerts_topic_name" {
   value = aws_sns_topic.alerts.name
 }
+output "loadtest_instance_ids" {
+  value = aws_instance.loadtest[*].id
+}

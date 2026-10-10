@@ -177,3 +177,20 @@ variable "loadtest_memory" {
   type        = number
   default     = 4096
 }
+
+# ---------- Gerador k6 em EC2 (docs/teste-de-carga-aws-runner-ec2.md) ----------
+variable "enable_loadtest_ec2" {
+  description = "Cria a instância EC2 do k6 (exige enable_loadtest). Usado por loadtest.sh --runner ec2."
+  type        = bool
+  default     = false
+}
+variable "loadtest_instance_type" {
+  description = "Tipo da instância do k6. Vazio: c6i.xlarge (X86_64) ou c7g.xlarge (ARM64), conforme cpu_architecture."
+  type        = string
+  default     = ""
+}
+variable "loadtest_use_spot" {
+  description = "Instância Spot de requisição única (false = On-Demand, fallback quando falta capacidade Spot)."
+  type        = bool
+  default     = true
+}

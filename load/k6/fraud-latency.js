@@ -9,7 +9,8 @@
  *   loadtest.sh na AWS, via SINK_QUEUE_URL) e calcula latência = recebimento do alerta -
  *   `transactionOccurredAt` (que o produtor carimba com o instante do envio). Também conta duplicados.
  * - As requisições são assinadas com SigV4 (vendor/aws-signature). As credenciais vêm da task role
- *   (AWS_CONTAINER_CREDENTIALS_RELATIVE_URI) ou de AWS_ACCESS_KEY_ID/SECRET (LocalStack: test/test).
+ *   (AWS_CONTAINER_CREDENTIALS_RELATIVE_URI), do instance profile (EC2, IMDSv2) ou de AWS_ACCESS_KEY_ID/SECRET
+ *   (LocalStack: test/test).
  * - Percentis e thresholds de latência valem só para a fase `steady` (após o aquecimento).
  * - RESULTS_MODE=file grava .txt/.json/.html em RESULTS_DIR; RESULTS_MODE=stdout (AWS) imprime os mesmos
  *   arquivos em base64 no stdout, em linhas `K6ART|nome|i|n|dados`, que o loadtest.sh remonta a partir do CloudWatch Logs.
@@ -99,6 +100,17 @@ function credentials() {
     const res = http.get(`http://169.254.170.2${rel}`);
     if (res.status !== 200) throw new Error(`credenciais da task role indisponíveis: ${res.status} ${res.body}`);
     const c = res.json();
+    return { accessKeyId: c.AccessKeyId, secretAccessKey: c.SecretAccessKey, sessionToken: c.Token };
+  }
+  if (!LOCAL_ENDPOINT && !__ENV.AWS_ACCESS_KEY_ID) {
+    // EC2: credenciais do instance profile via IMDSv2
+    const imds = 'http://169.254.169.254/latest';
+    const tok = http.put(`${imds}/api/token`, null, { headers: { 'X-aws-ec2-metadata-token-ttl-seconds': '21600' } });
+    if (tok.status !== 200) throw new Error(`IMDSv2 indisponível: ${tok.status} ${tok.body}`);
+    const h = { headers: { 'X-aws-ec2-metadata-token': tok.body } };
+    const role = http.get(`${imds}/meta-data/iam/security-credentials/`, h);
+    if (role.status !== 200) throw new Error(`instance profile não encontrado: ${role.status}`);
+    const c = http.get(`${imds}/meta-data/iam/security-credentials/${role.body.trim().split('\n')[0]}`, h).json();
     return { accessKeyId: c.AccessKeyId, secretAccessKey: c.SecretAccessKey, sessionToken: c.Token };
   }
   return {

@@ -70,6 +70,7 @@ def main():
     p.add_argument("--queue", default="transactions")
     p.add_argument("--dlq", action="append", default=[])
     p.add_argument("--desired", type=int, default=3)
+    p.add_argument("--generator-instance", action="append", default=[], help="instância EC2 do k6 (CPU do gerador)")
     p.add_argument("--meta", default="", help="linha livre para o cabeçalho (perfil, commit, imagem)")
     p.add_argument("--out", required=True)
     a = p.parse_args()
@@ -107,6 +108,9 @@ def main():
     ]
     for i, dlq in enumerate(a.dlq):
         queries.append(metric_query(f"dlq{i}", "AWS/SQS", "ApproximateNumberOfMessagesVisible", {"QueueName": dlq}, "Maximum"))
+    for i, inst in enumerate(a.generator_instance):
+        queries.append(metric_query(f"gen{i}", "AWS/EC2", "CPUUtilization", {"InstanceId": inst}, "Average"))
+        queries.append(metric_query(f"gen{i}_max", "AWS/EC2", "CPUUtilization", {"InstanceId": inst}, "Maximum"))
     cw = fetch(queries, start - timedelta(minutes=1), end + timedelta(minutes=3))
 
     def steady(qid):
@@ -164,6 +168,14 @@ def main():
                  "n/a" if stopped is None else f"{len(stopped)}" + (f" ({'; '.join(sorted(set(stopped)))})" if stopped else ""),
                  "n/a" if stopped is None else check(not stopped)))
 
+    gen_avg = [stat(steady(f"gen{i}"), lambda v: sum(v) / len(v)) for i in range(len(a.generator_instance))]
+    gen_max = [stat(steady(f"gen{i}_max"), max) for i in range(len(a.generator_instance))]
+    if a.generator_instance:
+        worst = max([v for v in gen_avg if v is not None], default=None)
+        rows.append(("G1", "CPU média do gerador (EC2) na janela steady", "< 80%",
+                     "sem dados" if worst is None else f"{worst:.1f}% (máx. {max(v for v in gen_max if v is not None):.1f}%)",
+                     check(worst is not None and worst < 80)))
+
     failed = [r for r in rows if r[4] == "FALHOU"]
     verdict = "REPROVADO" if failed else "APROVADO"
     if dropped or (expected_events and sent < 0.99 * expected_events):
@@ -201,6 +213,8 @@ def main():
     ):
         v = [x * scale for x in steady(qid)]
         L.append(f"| {label} | {fmt(avg(v))} | {fmt(max(v) if v else None)} |")
+    for i, inst in enumerate(a.generator_instance):
+        L.append(f"| Gerador k6 `{inst}`: CPU (%) | {fmt(gen_avg[i])} | {fmt(gen_max[i])} |")
     sent_sum = sum(steady("sent")) if steady("sent") else None
     del_sum = sum(steady("deleted")) if steady("deleted") else None
     L.append(f"\n- SQS `{a.queue}` na janela steady: enviadas {fmt(sent_sum, digits=0)}, apagadas {fmt(del_sum, digits=0)}")
