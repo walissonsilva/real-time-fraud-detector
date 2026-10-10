@@ -11,7 +11,7 @@ Hoje as regras são lidas de `config/rules.json` uma única vez, na criação do
 - **Cadastro, alteração e rollback** acontecem por `scripts/rules/publish-rules.sh` (versão hospedada com rótulo numérico + deployment), com estratégia gradual curta por padrão e imediata para urgências.
 - **Validação em três camadas, sem Lambda:** pré-validação completa no `publish-rules.sh` (mesma função `validateRulesDocument` da instância), validador JSON Schema **draft 4** estrutural no perfil do AppConfig (o AppConfig só valida o draft 4, e o `rule.v1` usa o 2020-12) e revalidação na instância.
 - **Falhas:** na partida, *retry* com *backoff* por ~45 s e, se não obtiver regras válidas, o processo não sobe; em runtime, mantém a última versão válida.
-- **Observabilidade:** métricas de revisão ativa, idade do refresh e falhas, emitidas em **EMF** (sem nova dependência de métricas), com alarmes de defasagem, rollout travado e taxa de alertas; os alarmes de saúde, de taxa de alertas e de **falhas de refresh** alimentam o **rollback automático** do AppConfig, que reverte sozinho um documento que as instâncias rejeitem.
+- **Observabilidade:** métricas de revisão ativa, idade do refresh e falhas, escritas como uma linha JSON `rules.metrics` no stdout e transformadas em métricas do CloudWatch por filtros de métrica (sem nova dependência de métricas), com alarmes de defasagem, rollout travado e taxa de alertas; os alarmes de saúde, de taxa de alertas e de **falhas de refresh** alimentam o **rollback automático** do AppConfig, que reverte sozinho um documento que as instâncias rejeitem.
 - **Rede e segurança:** SDK direto (sem o *sidecar* AppConfig Agent, descartado em research D-01); no perfil `full` o endpoint de VPC `appconfigdata` é adicionado; IAM de menor privilégio para instâncias e operadores.
 - **Dev/local:** `RULES_SOURCE=file` preserva o comportamento atual.
 
@@ -23,7 +23,7 @@ flowchart LR
     AC -->|poll 20 s| RP[AppConfigRuleRepository<br/>por instância ECS]
     RP -->|valida e troca atômica| SN[(RuleSnapshot em memória)]
     SN --> PT[ProcessTransactionService<br/>loadActiveSnapshot]
-    RP -->|métricas EMF| CW[CloudWatch]
+    RP -->|linha rules.metrics<br/>+ filtros de métrica| CW[CloudWatch]
     CW -->|alarmes de rollback<br/>saúde, taxa de alertas, falhas de refresh| AC
     CW -->|alarmes de defasagem| OPS[Tópico ops]
 ```
@@ -49,7 +49,7 @@ flowchart LR
 - Troca atômica por substituição de referência; leitura única do snapshot por avaliação (FR-008).
 - Sem fallback para o arquivo embutido em produção (FR-011).
 - Logs sem conteúdo de regras além do `ruleId`, sem token de sessão (FR-015).
-- Sem nova dependência de I/O no processo para métricas (EMF via stdout).
+- Sem nova dependência de I/O no processo para métricas (linha JSON no stdout + filtros de métrica).
 
 **Scale/Scope**: poucas dezenas de regras por documento (limite de contrato: 200); dezenas de tarefas ECS, cada uma com 1 sessão e ~3 consultas por minuto; 1 aplicação, 1 ambiente (`production`), 1 perfil.
 
@@ -59,7 +59,7 @@ flowchart LR
 
 | Princípio | Avaliação | Observação |
 |-----------|-----------|------------|
-| I. Arquitetura modular NestJS | ✅ | A mudança fica no módulo `rules` (repositório por fonte, extração de `validateRulesDocument`) e no módulo `observability` (emissor EMF). A abstração `RuleConfigClient` tem duas implementações reais (AppConfig e arquivo), atendendo ao critério da constituição |
+| I. Arquitetura modular NestJS | ✅ | A mudança fica no módulo `rules` (repositório por fonte, extração de `validateRulesDocument`) e no módulo `observability` (publicador de métricas por log). A abstração `RuleConfigClient` tem duas implementações reais (AppConfig e arquivo), atendendo ao critério da constituição |
 | II. Contratos primeiro | ✅ | `rule.v1` não muda; o envelope `RulesDocument v1` é um contrato novo, versionado, em [contracts/](contracts/) (referência 2020-12 e espelho estrutural em draft 4), a ser levado a `docs/contratos/` e ao `contracts:validate`, com teste de equivalência, antes da implementação |
 | III. Idempotência | ✅ | Não se aplica ao fluxo de alertas; a troca de snapshot não altera `dedupe_key` nem a avaliação |
 | IV. Resiliência | ✅ | Timeout e *retry* com *backoff* no cliente do AppConfig; última versão válida em falha; fail-fast na partida; falhas cobertas por testes (cliente falso) |
@@ -101,7 +101,7 @@ src/
 │   ├── appconfig-rule.client.ts         # NOVO: implementação sobre @aws-sdk/client-appconfigdata
 │   └── static-rule.repository.ts        # mantém a mesma interface (fonte por arquivo)
 ├── observability/
-│   └── metrics-emf.publisher.ts         # NOVO: emite EMF a cada 60 s
+│   └── metrics-log.publisher.ts         # NOVO: escreve a linha rules.metrics a cada 60 s
 ├── config/config.module.ts              # novas variáveis RULES_SOURCE, APPCONFIG_*, RULES_*
 └── transactions/process-transaction.service.ts   # sem mudança (contrato de loadActiveSnapshot preservado)
 
@@ -123,7 +123,7 @@ docs/adr/ADR-03-motor-de-regras.md             # já atualizado
 test/ (e *.spec.ts ao lado do código)
 ├── src/rules/appconfig-rule.repository.spec.ts
 ├── src/rules/rules-document.validator.spec.ts
-├── src/observability/metrics-emf.publisher.spec.ts
+├── src/observability/metrics-log.publisher.spec.ts
 └── test/integration/rules-atomic-swap.int-spec.ts
 ```
 
@@ -134,7 +134,7 @@ test/ (e *.spec.ts ao lado do código)
 | Violação / complexidade | Por que é necessária | Alternativa mais simples rejeitada porque |
 |-------------------------|----------------------|--------------------------------------------|
 | Segundo schema (draft 4 estrutural) para o perfil do AppConfig | O AppConfig só valida o draft 4, e o `rule.v1` é 2020-12; FR-005 pede validação na publicação, inclusive pelo console | Usar o `rule.v1` direto não é aceito pelo AppConfig; um validador Lambda foi descartado (research D-04) por custo desproporcional. O risco de divergência dos dois schemas é coberto por teste de equivalência no `contracts:validate` |
-| Emissor EMF próprio | Hoje nenhuma métrica customizada chega ao CloudWatch, e os alarmes de defasagem e de taxa de alertas dependem delas | `PutMetricData` no processo adicionaria I/O externo a proteger; um *sidecar* adicionaria um contêiner |
+| Publicador de métricas por log próprio + filtros de métrica | Hoje nenhuma métrica customizada chega ao CloudWatch, e os alarmes de defasagem e de taxa de alertas dependem delas | `PutMetricData` no processo adicionaria I/O externo a proteger; um *sidecar* adicionaria um contêiner |
 | Interface `RuleConfigClient` | Permite testar sem AppConfig real (LocalStack gratuito não o emula) e reaproveitar o repositório na fonte por arquivo | Chamar o SDK direto no repositório tornaria os testes dependentes de AWS |
 
 ## Ajustes decorrentes do plano

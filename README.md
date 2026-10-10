@@ -9,14 +9,14 @@ Um módulo por funcionalidade; cada serviço é `@Injectable()` e injetado pela 
 ```
 src/
   transactions/   consumo da fila de transações (SQS), validação (Ajv), ProcessTransactionService, RejectInvalidEventService
-  rules/          regras declarativas: DeclarativeRuleEngine, carga/validação de config/rules.json, StaticRuleRepository
+  rules/          regras declarativas: DeclarativeRuleEngine, validação do documento de regras, fontes: arquivo (StaticRuleRepository) e AWS AppConfig (AppConfigRuleRepository)
   alerts/         FraudAlert, decisão/dedupe, AlertRepository (Postgres + outbox), SnsEventBus, relay do outbox
   deliveries/     entrega por canal: DeliverAlertService, DeliveryRepository, provedores simulados, consumidores SQS
   dlq/            DlqMessage e SqsDlqPublisher
   health/         /health e /metrics
   config/ observability/ database/ aws/ cache/ shared/   infraestrutura transversal (config, logs/métricas, Postgres + migrações, SQS/SNS, Redis, retry)
-config/rules.json  regras stateless carregadas na inicialização
-scripts/           teste de carga (`npm run load`)
+config/rules.json  regras stateless da fonte por arquivo (dev/testes) e semente da primeira revisão no AppConfig
+scripts/           teste de carga (`npm run load`) e publicação de regras (`scripts/rules/publish-rules.sh`)
 infra/localstack/  criação das filas e tópicos (ADR-01)
 ```
 
@@ -54,6 +54,12 @@ transactions (SQS) ─▶ valida (TransactionEvent v1) ─┬─ inválido ─�
 ### Regras de exemplo (`config/rules.json`)
 
 `high-amount`, `high-value-new-counterparty`, `risky-merchant-country` e `unusual-channel-transaction-type`, todas `STATELESS` (formato `rule.v1`, expressões sem `eval`). O arquivo é validado na inicialização: ausente, vazio, malformado ou com regra com estado/janela impede o serviço de subir.
+
+### Fonte das regras (`RULES_SOURCE`)
+
+- **Local, testes e docker-compose:** `RULES_SOURCE=file` (padrão fora de produção) lê o `config/rules.json`.
+- **Produção (AWS):** o padrão é `RULES_SOURCE=appconfig`. As regras vêm do AWS AppConfig, são alteradas e revertidas **sem redeploy** com `scripts/rules/publish-rules.sh` e o arquivo embutido na imagem **não é lido**. Na partida, sem uma configuração válida em ~45 s o serviço não sobe; em execução, uma falha do AppConfig mantém a última revisão válida. Operação e detalhes em [infra/terraform/README.md](infra/terraform/README.md) e em [specs/002-appconfig-dynamic-rules](specs/002-appconfig-dynamic-rules/spec.md).
+- O ambiente local não usa AWS: `npm run infra:up`, `npm test` e `npm run test:int` funcionam sem o AppConfig.
 
 ### Simular falha de canal
 

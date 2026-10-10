@@ -63,12 +63,12 @@ stateDiagram-v2
 
 ## Métricas (nomes estáveis)
 
-| Métrica `/metrics` | Série EMF (`FraudDetector/Rules`) | Tipo |
+| Métrica `/metrics` | Métrica do CloudWatch (`FraudDetector/Rules`, via filtro de métrica sobre a linha `rules.metrics`) | Tipo |
 |---|---|---|
 | `rules_active_revision` | `RulesActiveRevision` | gauge |
 | `rules_last_refresh_age_seconds` | `RulesLastRefreshAgeSeconds` | gauge |
-| `rules_refresh_failures_total` | `RulesRefreshFailures` | contador (delta por minuto no EMF) |
-| `alerts_total` (existente) | `AlertsCreated` | contador (delta por minuto no EMF) |
+| `rules_refresh_failures_total` | `RulesRefreshFailures` | contador (delta por minuto na linha de log) |
+| `alerts_total` (existente) | `AlertsCreated` | contador (delta por minuto na linha de log) |
 
 Sem rótulos de alta cardinalidade nem identificadores de tarefa nas séries do CloudWatch; a divergência entre instâncias sai de `MAX − MIN` do mesmo gauge.
 

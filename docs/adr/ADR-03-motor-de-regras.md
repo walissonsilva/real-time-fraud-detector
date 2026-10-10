@@ -1,6 +1,6 @@
 # ADR-03 — Motor de regras
 
-> Status: **proposto**, com a linguagem da expressão **em aberto** · Data: 07/10/2026 (revisado em 10/10/2026: fonte das regras passa a ser o AppConfig) · Requisitos: RF-10, RF-11, RF-18, RF-20 a RF-23, RF-26, RF-40, RNF-07, RNF-30, RNF-40
+> Status: **proposto**, com a linguagem da expressão **em aberto** · Data: 07/10/2026 (revisado em 10/10/2026: fonte das regras passa a ser o AppConfig; decisões de implementação da feature 002 incorporadas) · Requisitos: RF-10, RF-11, RF-18, RF-20 a RF-23, RF-26, RF-40, RNF-07, RNF-30, RNF-40
 
 ## Contexto
 
@@ -21,7 +21,7 @@ Hoje as regras são lidas de `config/rules.json` uma única vez, na criação do
 4. **Cadastro, alteração e rollback** acontecem no AppConfig:
    - **cadastrar/alterar:** publicar uma nova versão do documento de regras e iniciar um *deployment* com uma estratégia (linear ou canary, com *bake time*);
    - **rollback:** apontar o *deployment* de volta para a versão anterior, ou deixar o AppConfig reverter sozinho quando um alarme do CloudWatch disparar durante o rollout;
-   - **validação na publicação:** o perfil de configuração usa o `rule.v1.schema.json` como validador JSON Schema, então um documento fora do contrato nem é aceito.
+   - **validação na publicação:** em três camadas (ver *Decisões de implementação*): pré-validação completa no script de publicação, validador JSON Schema **draft 4** estrutural no perfil e revalidação na instância.
 5. **Validação na instância, antes de ativar:** schema, sintaxe, custo e rejeição de `WINDOWED` na fase 1 (RF-18, RF-26), com o mesmo `loadRulesConfig` de hoje, separado do acesso a arquivo. O conjunto novo é compilado e **trocado de uma vez** (troca atômica do snapshot).
 6. **Falhas: fail-fast na partida, última versão válida em execução.**
    - **Startup:** a instância tenta obter a configuração com *retry* e *backoff* (cerca de 30 a 60 s). Se não conseguir, **não sobe**, na mesma linha do FR-014b. Não há fallback para o arquivo embutido na imagem em produção.
@@ -34,6 +34,20 @@ Hoje as regras são lidas de `config/rules.json` uma única vez, na criação do
    Alarmes: idade do último refresh acima do limite (alinhado ao SLO de *freshness* de 30 s, RNF-40) e instâncias com revisões diferentes por tempo prolongado (rollout travado).
 8. **Desenvolvimento local:** `RULES_SOURCE=file` usa o `config/rules.json` e o `StaticRuleRepository`. O arquivo existe **apenas** para dev, testes e docker-compose, e não é lido em produção. Em produção o padrão é `RULES_SOURCE=appconfig`.
 9. **`appliesTo`** funciona como pré-filtro barato, antes da expressão.
+
+### Decisões de implementação (feature 002)
+
+Detalhes e justificativas em [specs/002-appconfig-dynamic-rules/research.md](../../specs/002-appconfig-dynamic-rules/research.md).
+
+- **Revisão = rótulo de versão numérico.** A API de dados do AppConfig devolve o `Version-Label`, e não o número da versão. O `scripts/rules/publish-rules.sh` grava como rótulo o carimbo UTC `YYYYMMDDHHMMSS` (inteiro monotônico); conteúdo sem rótulo numérico é rejeitado. Ser inteiro permite alarmar divergência com `MAX − MIN`.
+- **Validação em três camadas, sem Lambda.** O validador JSON Schema do AppConfig só aceita o draft 4, e o `rule.v1` usa o 2020-12. (1) O script roda `validateRulesDocument` (a mesma função da instância) antes de criar a versão; (2) o perfil usa um espelho estrutural em draft 4 (`rules-document.v1.draft4.schema.json`), coberto por teste de equivalência no `contracts:validate`; (3) a instância revalida antes de ativar. Um Lambda validador foi descartado por custo de complexidade desproporcional.
+- **SDK direto, sem o AppConfig Agent.** O Agent criaria duas camadas de polling, serviria cache de forma opaca (a idade do refresh deixaria de ser observável), dificultaria o fail-fast e adicionaria um contêiner e um endpoint HTTP local sem autenticação. O custo é manter cerca de 100 linhas de cliente (sessão, token de uso único, expiração), cobertas por testes.
+- **Timeout em toda chamada** ao AppConfig (padrão 5 s) e *retry* com *backoff* na partida (prazo 45 s); um ciclo de consulta nunca bloqueia o seguinte.
+- **Rollback automático por alarme composto.** O AppConfig aceita no máximo 5 monitores por ambiente; um alarme composto (DLQs, idade da fila de transações, falhas de refresh e taxa de alertas) conta como um. Um documento rejeitado pelas instâncias mantém a contagem de falhas enquanto for o último publicado, o que dispara o alarme dentro da janela de rollout e de *bake* e reverte o deployment.
+- **Métricas por linha de log.** A aplicação escreve a linha JSON `rules.metrics` a cada 60 s e filtros de métrica no Terraform a transformam em métricas `FraudDetector/Rules`; a extração de EMF pelo `awslogs` não pôde ser confirmada.
+- **Rede.** No perfil `full` (sem NAT), o endpoint de VPC `appconfigdata` é necessário; sem ele as tarefas não sobem (fail-fast).
+- **Permissões.** A role das tarefas só lê o perfil (`appconfig:StartConfigurationSession` e `appconfig:GetLatestConfiguration` no ARN do perfil); publicar e implantar exige a política/papel `rules-operator`, separado do deploy de código. O CloudTrail registra as ações de gerenciamento.
+- **Estratégias.** `rules-gradual` (linear, 10 min, 20%, *bake* de 5 min) como padrão e `rules-immediate` para urgências e reversões.
 
 ### Fluxo de cadastro, alteração e rollback
 

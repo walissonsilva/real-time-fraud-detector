@@ -2,6 +2,8 @@
 
 > Status: **proposto** · Data: 07/10/2026 · Premissas: P-04, P-20, P-21 · Requisitos: RF-21, RF-22, RF-30 a RF-32, RF-36, RF-43, RNF-12, RNF-15, RNF-27, RNF-28
 
+> **Nota (10/10/2026):** a fonte das regras passou a ser o AWS AppConfig ([ADR-03](ADR-03-motor-de-regras.md)). As tabelas `rule_versions` e `rules_revision` abaixo **não são implementadas**; a versão e o histórico das regras ficam no AppConfig (versões hospedadas e deployments, com auditoria no CloudTrail). O restante deste ADR (alertas, outbox, entregas) segue valendo.
+
 ## Contexto
 
 Só os alertas (8 a 40 por segundo, até ~125 em pico, P-16) e os dados de gestão chegam ao banco. Cerca de 99,5% dos eventos não geram alerta e nunca o tocam. O banco precisa garantir unicidade do alerta, atomicidade entre o registro e a publicação, regras versionadas e uma trilha de auditoria.

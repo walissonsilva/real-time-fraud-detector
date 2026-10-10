@@ -18,6 +18,7 @@ Todas as decisões abaixo resolvem pontos que a spec deixou para o plano ou que 
 | A10 | O `DeclarativeRuleEngine` é uma classe pura (sem dependências de Nest além do decorator), e o `loadRulesConfig` já concentra a validação | A validação pode ser extraída (`validateRulesDocument`) e reutilizada na instância e no script de publicação (D-04) |
 | A11 | No perfil `full` do Terraform (`enable_nat=false`, `enable_vpc_endpoints=true`) a saída das tarefas só passa por VPC endpoints, e a lista em `network.tf` não inclui o AppConfig. O endpoint de dados responde em `appconfigdata.<região>.amazonaws.com` | Sem um endpoint `appconfigdata`, as tarefas não alcançam o AppConfig e falham na partida (D-12) |
 | A12 | A documentação consultada não confirmou se um perfil com chave KMS gerenciada pelo cliente exige `kms:Decrypt` do chamador da API de dados | Item a confirmar antes de usar CMK no perfil (D-12) |
+| A13 | Um ambiente do AppConfig aceita no máximo **5 monitores**; a documentação não afirma que alarmes compostos sejam aceitos, mas exemplos do CDK passam um `CompositeAlarm` como monitor | Todos os sinais de rollback ficam num alarme composto (OR) com um único monitor; confirmar na AWS com os cenários 4 e 6b do quickstart (D-06) |
 
 ## Decisões
 
@@ -69,9 +70,9 @@ Todas as decisões abaixo resolvem pontos que a spec deixou para o plano ou que 
 - **Racional:** o padrão gradual dá a janela de observação (A6); o imediato mantém o SC-002 (reverter com o mesmo efeito e prazo de uma publicação normal) quando o tempo é crítico.
 - **Alternativas:** estratégia exponencial (mais complexa sem ganho para poucas tarefas); só a estratégia imediata (perde a proteção por alarme).
 
-### D-06 Métricas e alarmes: formato EMF no log, sem nova dependência
+### D-06 Métricas e alarmes: linha de log + filtros de métrica, sem nova dependência
 
-- **Decisão:** um emissor leve (`MetricsEmfPublisher`) escreve a cada 60 s uma linha JSON no **formato EMF** (*Embedded Metric Format*) no stdout, que o driver `awslogs` já envia ao CloudWatch Logs, e o CloudWatch extrai as métricas. Namespace `FraudDetector/Rules`. Métricas:
+- **Decisão:** um publicador leve (`MetricsLogPublisher`) escreve a cada 60 s uma linha JSON `rules.metrics` no stdout, que o driver `awslogs` já envia ao CloudWatch Logs; filtros de métrica (`aws_cloudwatch_log_metric_filter`, Terraform) extraem os campos numéricos como métricas do namespace `FraudDetector/Rules`. Foi preferido ao *Embedded Metric Format* porque a extração de EMF a partir do `awslogs` no Fargate não pôde ser confirmada na documentação, enquanto filtros de métrica são determinísticos. Métricas:
   - `RulesActiveRevision` (gauge, sem dimensão de tarefa);
   - `RulesLastRefreshAgeSeconds` (gauge);
   - `RulesRefreshFailures` (contador por intervalo);
@@ -83,7 +84,7 @@ Todas as decisões abaixo resolvem pontos que a spec deixou para o plano ou que 
   - **Rollback automático (monitores do ambiente):** os alarmes de saúde já existentes (DLQ não vazia e idade da fila de transações, que cobre erros de processamento, que terminam na DLQ, e atraso), um alarme de **taxa de alertas** sobre `AlertsCreated` com banda de detecção de anomalia e um alarme de **falhas de refresh** (`RulesRefreshFailures` > 0 em 2 de 3 períodos de 1 min). Este último é o que reverte sozinho um documento que passe pelo schema estrutural mas seja rejeitado pelas instâncias (D-04).
 - **Latência de alerta:** não é monitor de rollback, porque `alert_latency_ms` existe só em memória e publicá-la exigiria guardar o máximo por intervalo. O limite de 500 ms (p99) é verificado no teste de carga com publicação de regras no meio da execução (T053).
 - **Limitação registrada:** a detecção de anomalia do CloudWatch precisa de dados históricos para ter uma banda confiável; no início o alarme é pouco sensível. O limite e a linha de base reais ficam para a calibração em ambiente (teste de carga).
-- **Racional:** EMF dispensa o SDK do CloudWatch no caminho da aplicação e reaproveita o log que já existe. Chamada à API de métricas dentro do processo seria mais uma dependência externa a proteger (constituição IV).
+- **Racional:** a linha de log com filtros dispensa o SDK do CloudWatch no caminho da aplicação e reaproveita o log que já existe. Chamada à API de métricas dentro do processo seria mais uma dependência externa a proteger (constituição IV).
 - **Alternativas:** `PutMetricData` direto (nova dependência e I/O externo); exportador Prometheus/ADOT (sidecar, fora de escopo).
 
 ### D-07 Tolerância do alarme de divergência
@@ -120,8 +121,17 @@ Todas as decisões abaixo resolvem pontos que a spec deixou para o plano ou que 
 - **Criptografia em repouso:** padrão da AWS (chave própria da AWS) para o perfil, suficiente porque o documento de regras não contém dados pessoais. Se um dia o perfil usar a CMK do projeto (`enable_cmk`), confirmar se a role da instância precisa de `kms:Decrypt` (A12) e incluí-la na política da role `app` e na política da chave.
 - **Transporte e autenticação:** TLS e SigV4 com a task role, como os demais serviços; sem endpoint local sem autenticação (D-01).
 
+## Confirmações feitas na implementação (2026-10-10)
+
+- **Endpoint de VPC:** o nome do serviço de PrivateLink do plano de dados é `com.amazonaws.<região>.appconfigdata` (página de serviços integrados ao PrivateLink da AWS). Adicionado a `local.interface_endpoints` em `network.tf`. A confirmação com `aws ec2 describe-vpc-endpoint-services` não foi possível por falta de credenciais AWS no ambiente de desenvolvimento; repetir antes do `apply` no perfil `full`.
+- **Ação IAM:** `StartConfigurationSession` e `GetLatestConfiguration` pertencem ao serviço `appconfigdata`, mas as ações do IAM têm o prefixo `appconfig:` (Service Authorization Reference). A política da role `app` está correta.
+- **CMK:** o perfil usa a chave padrão da AWS; a necessidade de `kms:Decrypt` com CMK (A12) segue **não confirmada** e não se aplica enquanto o perfil não usar CMK.
+- **Limite de monitores:** no máximo 5 por ambiente (A13); resolvido com um alarme composto. Que o AppConfig aceite alarme composto como monitor deve ser conferido nos cenários 4 e 6b do quickstart.
+- **Métricas:** a extração de EMF a partir do `awslogs` no Fargate não pôde ser confirmada; D-06 usa linha de log + filtros de métrica.
+- **Alarmes em ALARM na publicação:** se algum alarme monitorado já estiver em ALARM quando o deployment começa (por exemplo, DLQ não vazia), o AppConfig reverte logo; documentado no README de infraestrutura.
+
 ## Pendências para calibração (não bloqueiam o plano)
 
 - Faixa e sensibilidade do alarme de taxa de alertas (depende de dados de produção).
 - Valor final do tempo de partida (45 s) após medir o tempo real de `StartConfigurationSession` na AWS.
-- Confirmar o prefixo da ação IAM (`appconfig:`), o nome do serviço de endpoint (`appconfigdata`) e a necessidade de `kms:Decrypt` com CMK (A12).
+- Confirmar com credenciais AWS o nome do serviço de endpoint (`appconfigdata`) e, se o perfil passar a usar CMK, a necessidade de `kms:Decrypt` (A12).

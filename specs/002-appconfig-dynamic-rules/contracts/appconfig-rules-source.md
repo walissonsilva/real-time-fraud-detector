@@ -49,7 +49,8 @@ Permissões da instância (prefixo da ação a confirmar na referência do IAM):
 | `APPCONFIG_APPLICATION` / `APPCONFIG_ENVIRONMENT` / `APPCONFIG_PROFILE` | — | Identificadores (obrigatórios com `appconfig`) |
 | `RULES_POLL_INTERVAL_MS` | `20000` | Intervalo base entre consultas |
 | `RULES_STARTUP_TIMEOUT_MS` | `45000` | Prazo total de tentativas na partida |
-| `RULES_METRICS_EMF` | `true` em produção | Liga a emissão EMF |
+| `RULES_REQUEST_TIMEOUT_MS` | `5000` | Timeout de cada chamada ao AppConfig |
+| `RULES_METRICS_LOG` | `true` em produção | Liga a linha JSON `rules.metrics` (a cada 60 s) que alimenta as métricas do CloudWatch |
 
 ## 5. Métricas e alarmes
 
