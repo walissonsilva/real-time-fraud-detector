@@ -12,6 +12,15 @@
 
 O desafio técnico exige "extensibilidade das regras sem necessidade de redeploy". Hoje as regras são lidas de um arquivo (`config/rules.json`) uma única vez, na inicialização, e ficam num conjunto imutável em memória. Qualquer mudança exige rebuild e redeploy, o que contraria o requisito. O ambiente já está na AWS, e o AWS AppConfig foi escolhido como fonte das regras por oferecer versões, rollout gradual, rollback e validação prontos.
 
+## Clarifications
+
+### Session 2026-10-10
+
+- Q: Qual a estratégia padrão de rollout das regras? → A: Gradual curto como padrão (cerca de 10 min no total, com observação final de poucos minutos e rollback automático por alarme ativo); rollout imediato permitido por deployment, em urgências, sem janela de observação.
+- Q: Que alarmes disparam o rollback automático? → A: Saúde do processamento (erros, latência de alerta acima de 500 ms, crescimento de DLQ) mais taxa de alertas fora da faixa esperada em relação à linha de base (pico ou queda brusca).
+- Q: De onde vem o identificador de revisão usado em métricas, logs e alarmes? → A: Do número de versão atribuído pelo AppConfig a cada publicação (imutável e automático); o campo `revision` do documento só vale na fonte por arquivo (dev).
+- Q: Quem pode publicar e implantar regras? → A: Um perfil de permissão dedicado a operadores de fraude, separado do perfil de deploy de código e da identidade das instâncias; toda ação auditada.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Alterar uma regra sem redeploy (Priority: P1)
@@ -41,7 +50,7 @@ Depois de publicar uma alteração, o operador percebe que ela causa falsos posi
 **Acceptance Scenarios**:
 
 1. **Given** a revisão N+1 ativa, **When** o operador implanta novamente a revisão N, **Then** todas as instâncias voltam a avaliar com N, com o mesmo prazo da publicação normal.
-2. **Given** um rollout gradual da revisão N+1 em andamento, **When** o alarme de monitoramento associado dispara, **Then** o rollout é revertido automaticamente para a revisão anterior.
+2. **Given** um rollout gradual da revisão N+1 em andamento, **When** um dos alarmes associados (saúde do processamento ou taxa de alertas fora da faixa) dispara, **Then** o rollout é revertido automaticamente para a revisão anterior.
 
 ---
 
@@ -123,7 +132,7 @@ Uma pessoa desenvolvedora sobe o ambiente local (docker-compose) e roda os teste
 - **Duas revisões em trânsito durante o rollout**: instâncias podem estar temporariamente em revisões diferentes, mas cada transação é avaliada com um único conjunto.
 - **Logs de erro de regra**: citam apenas `ruleId` e regra violada, nunca valores de transação ou dados pessoais.
 - **Reversão para uma revisão já usada antes**: tratada como qualquer outra implantação.
-- **Revisão ativa não numérica ou ausente no documento**: deve haver um identificador de revisão utilizável para métricas, mesmo que o documento não traga um.
+- **Documento sem campo `revision` ou com valor repetido**: sem efeito em produção, porque o identificador de revisão vem do número de versão do AppConfig, não do conteúdo do documento.
 
 ## Requirements *(mandatory)*
 
@@ -132,7 +141,7 @@ Uma pessoa desenvolvedora sobe o ambiente local (docker-compose) e roda os teste
 - **FR-001**: O sistema MUST obter as regras de decisão de um serviço de configuração gerenciado (AWS AppConfig) em produção, e permitir cadastrar e alterar regras sem redeploy nem reinício das instâncias.
 - **FR-002**: O sistema MUST consultar o serviço de configuração periodicamente, a cada 15 a 30 s, e aplicar uma nova revisão automaticamente quando ela existir.
 - **FR-003**: O sistema MUST permitir o rollback para uma revisão anterior sem redeploy, com o mesmo prazo de propagação de uma publicação normal.
-- **FR-004**: O sistema MUST suportar rollback automático quando um alarme operacional associado disparar durante um rollout gradual.
+- **FR-004**: O sistema MUST suportar rollback automático quando um alarme operacional associado disparar durante um rollout gradual. Os alarmes associados MUST cobrir a saúde do processamento (erros, latência de alerta acima de 500 ms, crescimento de DLQ) e a taxa de alertas fora da faixa esperada em relação à linha de base (pico ou queda brusca).
 - **FR-005**: O documento de regras MUST ser validado contra o contrato Rule v1 no momento da publicação, de modo que um documento fora do contrato não seja distribuído.
 - **FR-006**: Cada instância MUST validar e compilar o conjunto recebido antes de ativá-lo, com as mesmas regras de hoje: contrato, sintaxe, custo, rejeição de regras dependentes de janela na fase 1, ao menos uma regra `ACTIVE` e `ruleId` sem duplicidade.
 - **FR-007**: Uma regra ou documento inválido MUST NOT ser ativado; o conjunto atual permanece em uso.
@@ -144,17 +153,19 @@ Uma pessoa desenvolvedora sobe o ambiente local (docker-compose) e roda os teste
 - **FR-013**: O sistema MUST tratar uma resposta vazia do serviço de configuração como "sem mudança", nunca como lista vazia de regras.
 - **FR-014**: O sistema MUST reabrir automaticamente a sessão de consulta quando ela expirar.
 - **FR-015**: Registros de erro de regra MUST citar apenas `ruleId` e a regra violada, nunca valores de transação ou dados pessoais.
-- **FR-016**: O sistema MUST expor, por instância, a revisão ativa, a idade do último refresh bem-sucedido e o total de falhas de refresh.
+- **FR-016**: O sistema MUST expor, por instância, a revisão ativa (número de versão do AppConfig), a idade do último refresh bem-sucedido e o total de falhas de refresh.
 - **FR-017**: O sistema MUST ter alarme para idade do último refresh acima do limite (alinhado ao SLO de frescor das regras, até 30 s) e alarme para instâncias em revisões diferentes por tempo prolongado.
 - **FR-018**: A fonte das regras MUST ser selecionável por configuração entre arquivo e AppConfig; em desenvolvimento, testes e docker-compose vale o arquivo `config/rules.json`; em produção o padrão é o AppConfig e o arquivo não é lido.
 - **FR-019**: A infraestrutura do AppConfig MUST ser provisionada como código (aplicação, ambiente, perfil de configuração com validador de contrato, estratégia de deployment e deployment inicial), com permissões mínimas para a identidade das instâncias lerem a configuração.
 - **FR-020**: Os alarmes e as métricas desta feature MUST ser integrados ao monitoramento existente.
 - **FR-021**: O comportamento de avaliação das regras (resultado para uma mesma transação e um mesmo conjunto de regras) MUST ser idêntico ao atual, qualquer que seja a fonte.
+- **FR-022**: A estratégia padrão de deployment de regras MUST ser gradual e curta (cerca de 10 min no total, com observação final de poucos minutos), com o rollback automático por alarme ativo durante a janela. Um deployment imediato (sem janela de observação) MUST ser possível por escolha explícita do operador, para urgências.
+- **FR-023**: Publicar e implantar regras MUST exigir um perfil de permissão dedicado a operadores de fraude, distinto do perfil de deploy de código e da identidade das instâncias (que só podem ler a configuração). Toda publicação e todo deployment MUST ficar registrado para auditoria (quem, quando e qual revisão).
 
 ### Key Entities *(include if feature involves data)*
 
-- **Documento de regras**: conjunto versionado de regras no contrato Rule v1, com um identificador de revisão; é o que o operador publica.
-- **Revisão**: uma versão publicada e imutável do documento de regras, que pode ser implantada ou revertida.
+- **Documento de regras**: conjunto versionado de regras no contrato Rule v1; é o que o operador publica.
+- **Revisão**: uma versão publicada e imutável do documento de regras, identificada pelo número de versão atribuído pelo AppConfig (na fonte por arquivo, pelo campo `revision` do documento); pode ser implantada ou revertida.
 - **Conjunto ativo (snapshot)**: as regras validadas e compiladas que uma instância usa em memória; trocado por inteiro, nunca editado parcialmente.
 - **Deployment**: ato de tornar uma revisão ativa nas instâncias, com estratégia (gradual ou imediata) e, opcionalmente, alarme de reversão.
 - **Estado de frescor da instância**: revisão ativa, momento do último refresh bem-sucedido e contagem de falhas, usados para métricas e alarmes.
@@ -176,9 +187,9 @@ Uma pessoa desenvolvedora sobe o ambiente local (docker-compose) e roda os teste
 
 - O AWS AppConfig é a fonte de regras de produção por decisão do usuário e porque o ambiente já está na AWS; o documento de regras é o mesmo formato Rule v1 usado hoje.
 - A identidade das instâncias em execução (role de tarefa) pode receber permissão de leitura do AppConfig.
-- O intervalo de consulta fica entre 15 e 30 s, alinhado ao SLO de frescor; a duração do rollout gradual soma-se a esse tempo e é escolhida por deployment (pode ser imediata quando necessário).
+- O intervalo de consulta fica entre 15 e 30 s, alinhado ao SLO de frescor; a duração do rollout (padrão gradual curto, ver FR-022) soma-se a esse tempo e pode ser trocada por um deployment imediato por escolha do operador.
 - Durante uma queda do serviço de configuração, instâncias novas não sobem (inclusive por autoscaling); o risco é aceito para nunca operar com regras erradas ou desatualizadas sem aviso.
-- Não há fluxo de rascunho e aprovação, nem interface gráfica de edição; o operador publica o documento pelo console ou pela linha de comando do provedor. A auditoria é limitada ao histórico de versões e deployments e ao registro de chamadas da conta.
+- Não há fluxo de rascunho e aprovação, nem interface gráfica de edição; o operador (com o perfil dedicado de FR-023) publica o documento pelo console ou pela linha de comando do provedor. A auditoria é limitada ao histórico de versões e deployments e ao registro de chamadas da conta.
 - Regras que exijam campo ou função nova no motor continuam exigindo deploy; regras dependentes de janela (fase 2) continuam rejeitadas.
 - O ambiente local não usa o AppConfig, que não é emulado de forma confiável localmente; o arquivo `config/rules.json` cobre dev e testes.
 - Existe um limite de tolerância configurável para "revisões diferentes por tempo prolongado"; o valor inicial será definido no plano.
