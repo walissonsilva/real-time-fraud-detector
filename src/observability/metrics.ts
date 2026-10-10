@@ -29,6 +29,17 @@ export class InMemoryMetrics {
     this.observations.set(key, { count: current.count + 1, sum: current.sum + value, max: Math.max(current.max, value) });
   }
 
+  /** Soma de um contador em todas as combinações de rótulos (ex.: `alerts_total` de todas as severidades). */
+  counterTotal(name: string): number {
+    let total = 0;
+    for (const [key, value] of this.counters) if (key === name || key.startsWith(`${name}{`)) total += value;
+    return total;
+  }
+
+  gaugeValue(name: string, labels?: MetricLabels): number | undefined {
+    return this.gauges.get(keyOf(name, labels));
+  }
+
   counter(name: string, labels?: MetricLabels): number {
     return this.counters.get(keyOf(name, labels)) ?? 0;
   }

@@ -29,4 +29,17 @@ describe('MetricsController', () => {
     const labels = [...metrics.render().matchAll(/(\w+)="/g)].map((m) => m[1]);
     for (const l of labels) expect(allowed.has(l)).toBe(true);
   });
+
+  it('expõe as séries de regras (revisão ativa, idade do refresh e falhas) sem rótulos de alta cardinalidade', async () => {
+    const metrics = new InMemoryMetrics();
+    metrics.gauge('rules_active_revision', 20261010120000);
+    metrics.gauge('rules_last_refresh_age_seconds', 7);
+    metrics.increment('rules_refresh_failures_total', undefined, 3);
+    const out = await new MetricsController(metrics, repo(async () => ({ pending: 0, oldestAgeMs: 0 }))).render();
+    expect(out).toContain('rules_active_revision 20261010120000');
+    expect(out).toContain('rules_last_refresh_age_seconds 7');
+    expect(out).toContain('rules_refresh_failures_total 3');
+    // sem rótulo algum nessas séries: nada de tarefa, ruleId ou revisão como dimensão
+    for (const line of out.split('\n').filter((l) => l.startsWith('rules_'))) expect(line).not.toContain('{');
+  });
 });
