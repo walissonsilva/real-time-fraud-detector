@@ -1,5 +1,7 @@
 import { Global, Module } from '@nestjs/common';
 
+export type RulesSource = 'file' | 'appconfig';
+
 export interface AppConfig {
   databaseUrl: string;
   redisUrl: string;
@@ -18,6 +20,10 @@ export interface AppConfig {
   snsPublishTimeoutMs: number;
   outboxRelay: { intervalMs: number; minAgeMs: number; batchSize: number };
   rulesConfigPath: string;
+  /** Fonte das regras: `file` (dev/testes) ou `appconfig` (padrão em produção). */
+  rulesSource: RulesSource;
+  appconfig: { application: string; environment: string; profile: string };
+  rules: { pollIntervalMs: number; startupTimeoutMs: number; requestTimeoutMs: number; metricsLog: boolean };
   consumers: { enabled: boolean; channelsEnabled: boolean; transactionPollers: number; channelPollers: number };
   channels: {
     maxAttempts: number;
@@ -50,7 +56,16 @@ function optional(name: string, fallback: string): string {
   return process.env[name] || fallback;
 }
 
+function rulesSourceFromEnv(): RulesSource {
+  const raw = process.env.RULES_SOURCE;
+  if (raw === undefined || raw === '') return process.env.NODE_ENV === 'production' ? 'appconfig' : 'file';
+  if (raw !== 'file' && raw !== 'appconfig') throw new Error("Variável de ambiente inválida (use 'file' ou 'appconfig'): RULES_SOURCE");
+  return raw;
+}
+
 export function loadConfig(): AppConfig {
+  const rulesSource = rulesSourceFromEnv();
+  const fromAppConfig = rulesSource === 'appconfig';
   return {
     databaseUrl: required('DATABASE_URL'),
     redisUrl: required('REDIS_URL'),
@@ -72,6 +87,18 @@ export function loadConfig(): AppConfig {
       batchSize: int('OUTBOX_RELAY_BATCH_SIZE', 100),
     },
     rulesConfigPath: optional('RULES_CONFIG_PATH', 'config/rules.json'),
+    rulesSource,
+    appconfig: {
+      application: fromAppConfig ? required('APPCONFIG_APPLICATION') : optional('APPCONFIG_APPLICATION', ''),
+      environment: fromAppConfig ? required('APPCONFIG_ENVIRONMENT') : optional('APPCONFIG_ENVIRONMENT', ''),
+      profile: fromAppConfig ? required('APPCONFIG_PROFILE') : optional('APPCONFIG_PROFILE', ''),
+    },
+    rules: {
+      pollIntervalMs: Math.max(1000, int('RULES_POLL_INTERVAL_MS', 20000)),
+      startupTimeoutMs: int('RULES_STARTUP_TIMEOUT_MS', 45000),
+      requestTimeoutMs: Math.max(100, int('RULES_REQUEST_TIMEOUT_MS', 5000)),
+      metricsLog: optional('RULES_METRICS_LOG', 'false') === 'true',
+    },
     consumers: {
       enabled: optional('CONSUMERS_ENABLED', 'true') !== 'false',
       channelsEnabled: optional('CHANNEL_CONSUMERS_ENABLED', 'true') !== 'false',

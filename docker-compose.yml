@@ -45,6 +45,8 @@ services:
       DATABASE_URL: postgres://fraud:fraud@postgres:5432/fraud
       REDIS_URL: redis://redis:6379
       AWS_ENDPOINT_URL: http://localstack:4566
+      # Local: regras do arquivo config/rules.json. Em produção (AWS) o padrão é o AppConfig e o arquivo não é lido.
+      RULES_SOURCE: file
     ports: ["3000:3000"]
     depends_on:
       postgres: { condition: service_healthy }

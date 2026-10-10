@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import { consolidate } from '../alerts/decision';
 import { dedupeKeyOf } from '../alerts/dedupe-key';
@@ -9,7 +9,7 @@ import { JsonLogger } from '../observability/logger';
 import { InMemoryMetrics } from '../observability/metrics';
 import { AlertRepository } from '../alerts/alert.repository';
 import { DeclarativeRuleEngine } from '../rules/declarative-rule-engine';
-import { StaticRuleRepository } from '../rules/static-rule.repository';
+import { RULE_REPOSITORY, RuleRepository } from '../rules/rule-source';
 
 /** Falha transitória no processamento; `stage` indica a etapa para a DLQ (DlqMessage.stage). */
 export class ProcessingError extends Error {
@@ -48,7 +48,7 @@ export class ProcessTransactionService {
   newId: () => string = randomUUID;
 
   constructor(
-    private readonly rules: StaticRuleRepository,
+    @Inject(RULE_REPOSITORY) private readonly rules: RuleRepository,
     private readonly engine: DeclarativeRuleEngine,
     private readonly alerts: AlertRepository,
     private readonly publisher: OutboxEntryPublisherService,
