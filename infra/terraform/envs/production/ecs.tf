@@ -45,7 +45,11 @@ locals {
     SQS_CHANNEL_CUSTOMER_DLQ    = aws_sqs_queue.channel_dlq["customer"].name
     SNS_ALERTS_TOPIC            = aws_sns_topic.alerts.name
     SNS_ALERTS_TOPIC_ARN        = aws_sns_topic.alerts.arn
-    RULES_CONFIG_PATH           = "config/rules.json"
+    RULES_SOURCE                = "appconfig"
+    APPCONFIG_APPLICATION       = aws_appconfig_application.rules.id
+    APPCONFIG_ENVIRONMENT       = aws_appconfig_environment.production.environment_id
+    APPCONFIG_PROFILE           = aws_appconfig_configuration_profile.rules.configuration_profile_id
+    RULES_METRICS_LOG           = "true"
     CONSUMERS_ENABLED           = "true"
     CHANNEL_CONSUMERS_ENABLED   = "true"
     SQS_TRANSACTION_POLLERS     = tostring(var.sqs_transaction_pollers)

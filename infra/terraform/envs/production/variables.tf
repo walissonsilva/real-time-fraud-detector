@@ -194,3 +194,15 @@ variable "loadtest_use_spot" {
   type        = bool
   default     = true
 }
+
+variable "rules_divergence_minutes" {
+  description = "Tempo com instâncias em revisões de regras diferentes antes de alarmar (maior que rollout + bake da estratégia gradual: 10 + 5 min)"
+  type        = number
+  default     = 20
+}
+
+variable "rules_operator_principals" {
+  description = "ARNs (usuários, papéis ou SSO) autorizados a assumir o papel de operador de fraude, que publica, reverte e para deployments de regras. Vazio = papel não é criado (a política gerenciada continua disponível para anexar)."
+  type        = list(string)
+  default     = []
+}

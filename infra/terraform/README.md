@@ -42,11 +42,42 @@ aws ecs run-task --cluster fraud-detector --launch-type FARGATE \
 # acompanhe em /ecs/fraud-detector-migrate (CloudWatch Logs)
 ```
 
+## 4b. Semear as regras (obrigatório antes de subir o serviço)
+As regras vêm do AWS AppConfig (specs/002-appconfig-dynamic-rules): o `terraform apply` cria aplicação, ambiente, perfil, estratégias e
+permissões, mas **não** a primeira revisão. Sem ela, as tarefas não sobem (fail-fast, `rules.startup.failed` nos logs).
+```sh
+cd ../../..   # raiz do repositório; precisa de `npm ci` (a validação usa ts-node) e do AWS CLI com o perfil de operador
+scripts/rules/publish-rules.sh config/rules.json --strategy immediate
+```
+O script valida o documento, cria a versão hospedada com `Version-Label` = carimbo UTC (`YYYYMMDDHHMMSS`, a **revisão**) e inicia o deployment.
+Os IDs vêm de `terraform output` (ou das variáveis `APPCONFIG_*`). Use `--dry-run` para só ver os comandos.
+
 ## 5. Subir o serviço
-O `desired_count` é ignorado após a criação (o autoscaling o gerencia). Depois da migration:
+O `desired_count` é ignorado após a criação (o autoscaling o gerencia). Depois da migration e da semeadura das regras:
 ```sh
 aws ecs update-service --cluster fraud-detector --service fraud-detector --desired-count 3
 ```
+
+## Alterar as regras sem redeploy
+```sh
+# edite um arquivo no formato RulesDocument v1 (veja config/rules.json) e publique
+scripts/rules/publish-rules.sh minhas-regras.json                  # gradual: 10 min + 5 min de bake, com rollback automático por alarme
+scripts/rules/publish-rules.sh minhas-regras.json --strategy immediate   # urgência
+```
+Acompanhe a revisão ativa por instância em `/metrics` (`rules_active_revision`) e no CloudWatch (`FraudDetector/Rules`).
+Publicar e implantar exige o perfil de operador de fraude; as tarefas só têm permissão de leitura do perfil.
+
+### Reverter
+```sh
+scripts/rules/publish-rules.sh --rollback 20261010120000   # novo deployment da revisão anterior (padrão: immediate)
+scripts/rules/publish-rules.sh --stop                      # para um rollout em andamento e volta à configuração anterior
+```
+- **Rollback automático:** o ambiente monitora o alarme composto `fraud-detector-rules-rollback` (DLQs não vazias, idade da fila
+  de transações e, a partir da US5, falhas de refresh e taxa de alertas). Se ele entrar em ALARM **durante o rollout ou o bake**
+  (10 + 5 min no padrão gradual), o AppConfig reverte sozinho. Depois que o deployment conclui, a reversão é manual (`--rollback`).
+- **Antes de publicar:** confirme que os alarmes estão em OK. Com uma DLQ não vazia (alarme em ALARM), o deployment é revertido
+  logo no início; esvazie ou investigue as DLQs primeiro.
+- O AppConfig aceita no máximo 5 monitores por ambiente, por isso os sinais ficam num único alarme composto.
 
 ## Trocar de perfil / economizar
 - `terraform apply -var-file=full.tfvars -var image_tag=$TAG` altera in-place (RDS e ECS); troque também a CMK/endpoints — revisar o `plan`.

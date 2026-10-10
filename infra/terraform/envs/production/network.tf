@@ -241,7 +241,7 @@ resource "aws_vpc_security_group_ingress_rule" "redis_from_app" {
 
 # ---------- VPC endpoints (full) ----------
 locals {
-  interface_endpoints = var.enable_vpc_endpoints ? toset(["sqs", "sns", "ecr.api", "ecr.dkr", "logs", "secretsmanager"]) : toset([])
+  interface_endpoints = var.enable_vpc_endpoints ? toset(["sqs", "sns", "ecr.api", "ecr.dkr", "logs", "secretsmanager", "appconfigdata"]) : toset([])
 }
 
 resource "aws_vpc_endpoint" "interface" {

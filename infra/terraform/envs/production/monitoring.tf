@@ -251,3 +251,130 @@ resource "aws_guardduty_detector" "main" {
   count  = var.enable_guardduty ? 1 : 0
   enable = true
 }
+
+# ---------- Regras dinâmicas (AppConfig): defasagem, divergência e taxa de alertas ----------
+# A aplicação escreve a linha JSON `rules.metrics` a cada 60 s; os filtros abaixo a transformam em métricas (research D-06).
+locals {
+  rules_metric_namespace = "FraudDetector/Rules"
+  rules_metrics = {
+    RulesActiveRevision        = "$.RulesActiveRevision"
+    RulesLastRefreshAgeSeconds = "$.RulesLastRefreshAgeSeconds"
+    RulesRefreshFailures       = "$.RulesRefreshFailures"
+    AlertsCreated              = "$.AlertsCreated"
+  }
+}
+
+resource "aws_cloudwatch_log_metric_filter" "rules" {
+  for_each       = local.rules_metrics
+  name           = "${var.name}-${each.key}"
+  log_group_name = aws_cloudwatch_log_group.app.name
+  pattern        = "{ $.message = \"rules.metrics\" && ${each.value} = * }"
+
+  metric_transformation {
+    name      = each.key
+    namespace = local.rules_metric_namespace
+    value     = each.value
+  }
+}
+
+# Última consulta bem-sucedida há mais de 90 s (SLO de frescor: 30 s; tolera três ciclos de poll perdidos).
+resource "aws_cloudwatch_metric_alarm" "rules_refresh_stale" {
+  alarm_name          = "${var.name}-rules-refresh-stale"
+  alarm_description   = "Instâncias sem atualizar as regras há mais de 90 s (AppConfig indisponível ou consulta falhando)"
+  namespace           = local.rules_metric_namespace
+  metric_name         = "RulesLastRefreshAgeSeconds"
+  statistic           = "Maximum"
+  period              = 60
+  evaluation_periods  = 3
+  threshold           = 90
+  comparison_operator = "GreaterThanThreshold"
+  treat_missing_data  = "notBreaching"
+  alarm_actions       = [aws_sns_topic.ops.arn]
+  depends_on          = [aws_cloudwatch_log_metric_filter.rules]
+}
+
+# Instâncias em revisões diferentes por mais que o rollout + bake (padrão 20 min > 10 + 5): rollout travado.
+resource "aws_cloudwatch_metric_alarm" "rules_revision_diverged" {
+  alarm_name          = "${var.name}-rules-revision-diverged"
+  alarm_description   = "Instâncias em revisões de regras diferentes por mais de ${var.rules_divergence_minutes} min (rollout travado)"
+  comparison_operator = "GreaterThanThreshold"
+  threshold           = 0
+  evaluation_periods  = var.rules_divergence_minutes
+  treat_missing_data  = "notBreaching"
+  alarm_actions       = [aws_sns_topic.ops.arn]
+
+  metric_query {
+    id          = "spread"
+    expression  = "highest - lowest"
+    label       = "Diferença entre a maior e a menor revisão ativa"
+    return_data = true
+  }
+  metric_query {
+    id = "highest"
+    metric {
+      namespace   = local.rules_metric_namespace
+      metric_name = "RulesActiveRevision"
+      period      = 60
+      stat        = "Maximum"
+    }
+  }
+  metric_query {
+    id = "lowest"
+    metric {
+      namespace   = local.rules_metric_namespace
+      metric_name = "RulesActiveRevision"
+      period      = 60
+      stat        = "Minimum"
+    }
+  }
+  depends_on = [aws_cloudwatch_log_metric_filter.rules]
+}
+
+# Falhas de refresh em 2 de 3 minutos: cobre documento rejeitado pelas instâncias e AppConfig fora. Também alimenta o
+# rollback automático (alarme composto em appconfig.tf), que reverte um documento rejeitado durante o rollout/bake.
+resource "aws_cloudwatch_metric_alarm" "rules_refresh_failures" {
+  alarm_name          = "${var.name}-rules-refresh-failures"
+  alarm_description   = "Falhas ao consultar ou ativar as regras (documento rejeitado ou AppConfig fora)"
+  namespace           = local.rules_metric_namespace
+  metric_name         = "RulesRefreshFailures"
+  statistic           = "Sum"
+  period              = 60
+  evaluation_periods  = 3
+  datapoints_to_alarm = 2
+  threshold           = 0
+  comparison_operator = "GreaterThanThreshold"
+  treat_missing_data  = "notBreaching"
+  alarm_actions       = [aws_sns_topic.ops.arn]
+  depends_on          = [aws_cloudwatch_log_metric_filter.rules]
+}
+
+# Taxa de alertas fora da banda de anomalia (pico ou queda brusca). O modelo de anomalia precisa de histórico:
+# no início o alarme é pouco sensível (research D-06).
+resource "aws_cloudwatch_metric_alarm" "rules_alert_rate_anomaly" {
+  alarm_name          = "${var.name}-rules-alert-rate-anomaly"
+  alarm_description   = "Taxa de alertas fora da faixa esperada (possível regra com falsos positivos ou que deixou de pegar fraude)"
+  comparison_operator = "LessThanLowerOrGreaterThanUpperThreshold"
+  threshold_metric_id = "band"
+  evaluation_periods  = 5
+  datapoints_to_alarm = 4
+  treat_missing_data  = "notBreaching"
+  alarm_actions       = [aws_sns_topic.ops.arn]
+
+  metric_query {
+    id          = "alerts"
+    return_data = true
+    metric {
+      namespace   = local.rules_metric_namespace
+      metric_name = "AlertsCreated"
+      period      = 60
+      stat        = "Sum"
+    }
+  }
+  metric_query {
+    id          = "band"
+    expression  = "ANOMALY_DETECTION_BAND(alerts, 3)"
+    label       = "Faixa esperada de alertas por minuto"
+    return_data = true
+  }
+  depends_on = [aws_cloudwatch_log_metric_filter.rules]
+}

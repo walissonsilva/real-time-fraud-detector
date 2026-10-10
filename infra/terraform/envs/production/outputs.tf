@@ -43,3 +43,24 @@ output "alerts_topic_name" {
 output "loadtest_instance_ids" {
   value = aws_instance.loadtest[*].id
 }
+output "appconfig_application_id" {
+  value = aws_appconfig_application.rules.id
+}
+output "appconfig_environment_id" {
+  value = aws_appconfig_environment.production.environment_id
+}
+output "appconfig_profile_id" {
+  value = aws_appconfig_configuration_profile.rules.configuration_profile_id
+}
+output "appconfig_strategy_gradual_id" {
+  value = aws_appconfig_deployment_strategy.gradual.id
+}
+output "appconfig_strategy_immediate_id" {
+  value = aws_appconfig_deployment_strategy.immediate.id
+}
+output "rules_operator_role_arn" {
+  value = try(aws_iam_role.rules_operator[0].arn, null)
+}
+output "rules_operator_policy_arn" {
+  value = aws_iam_policy.rules_operator.arn
+}
