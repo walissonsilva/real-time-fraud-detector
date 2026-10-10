@@ -6,7 +6,7 @@
 |---|---------|--------|
 | [ADR-01](ADR-01-mensageria.md) | SQS padrão na entrada; SNS FIFO e SQS FIFO na saída; LocalStack local | proposto |
 | [ADR-02](ADR-02-dedupe-e-estado-de-janela.md) | Unicidade do alerta no Postgres; estado de janela no Redis (`ZSET`, fase 2) | proposto |
-| [ADR-03](ADR-03-motor-de-regras.md) | Regras como dados no Postgres, recarga por *polling*; CEL ou JSON Logic **em aberto** | proposto, linguagem em aberto |
+| [ADR-03](ADR-03-motor-de-regras.md) | Regras como dados no AWS AppConfig (versões, rollback, *fail-fast* na partida, última versão válida em runtime); CEL ou JSON Logic **em aberto** | proposto, linguagem em aberto |
 | [ADR-04](ADR-04-armazenamento.md) | PostgreSQL com *outbox*, publicação inline e relay; DynamoDB descartado por ora | proposto |
 | [ADR-05](ADR-05-estrategia-de-degradacao.md) | *Fail-open* com marcação `degraded`; Postgres fora gera *backpressure* | proposto |
 | [ADR-06](ADR-06-outbox-cdc-debezium.md) | Outbox com CDC (Debezium + Kafka) **não** substitui a publicação inline com relay | proposto |
