@@ -15,6 +15,7 @@ Resposta ao case **CE 1** (take-home de 7 dias, defesa ao vivo). Esta pasta guar
 | 6 | [pesquisa-taxa-de-alertas.md](pesquisa-taxa-de-alertas.md) | Registro da pesquisa pública sobre taxa de fraude e de alerta (base do P-16) | pronto |
 | 7 | [04-plano-implementacao.md](04-plano-implementacao.md) | Plano de 6 dias (07–12/10/2026), critérios de conclusão, cortes e roteiro da defesa | plano v0.1 |
 | 8 | [fluxo-processamento.md](fluxo-processamento.md) | Fluxo implementado, da transação ao alerta entregue, com diagramas por etapa | pronto |
+| 9 | [teste-de-carga-aws-1000tps.md](teste-de-carga-aws-1000tps.md) | Plano do teste de carga k6 a 1.000 TPS na AWS e critérios de avaliação | plano (não implementado) |
 
 ## Escopo em fases (P-08)
 
