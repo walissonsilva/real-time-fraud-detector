@@ -119,18 +119,18 @@ O produtor e o consumidor estão na **mesma task**, então T0 e T3 usam o mesmo 
 
 ## 3. Perfil de carga
 
-Taxa de alertas de **1%**, não os 0,1% de projeto: a 1.000 TPS isso dá 10 alertas/s e ~6.000 amostras em 10 min, o suficiente para um p99 confiável. A 0,1% seriam ~600 amostras e o p99 ficaria ruidoso. O caso de 0,1% (valor de projeto) é coberto pelo fato de que o custo por evento sem alerta é menor.
+Taxa de alertas de **1%**, não os 0,1% de projeto: a 1.000 TPS isso dá 10 alertas/s e ~3.000 amostras em 5 min, o suficiente para um p99 confiável. A 0,1% seriam ~600 amostras e o p99 ficaria ruidoso. O caso de 0,1% (valor de projeto) é coberto pelo fato de que o custo por evento sem alerta é menor.
 
 | Etapa | Taxa | Duração | Taxa de alertas | Objetivo |
 |---|---|---|---|---|
 | 0. Smoke | 50 TPS | 1 min | 20% | Validar permissões, SigV4, sink e coleta de resultados |
-| 1. Aquecimento | 200 → 1.000 TPS | 3 min | 1% | Deixar o autoscaling e os pools de conexão estabilizarem |
-| 2. **Sustentado** | **1.000 TPS** | **10 min** | **1%** | **Janela de medição principal** |
-| 3. Cauda | 0 TPS | 2 min (drain) | — | Esperar os últimos alertas e a fila zerar |
+| 1. Aquecimento | 200 → 1.000 TPS | 90 s | 1% | Deixar o autoscaling e os pools de conexão estabilizarem |
+| 2. **Sustentado** | **1.000 TPS** | **5 min** | **1%** | **Janela de medição principal** |
+| 3. Cauda | 0 TPS | 1 min (drain) | — | Esperar os últimos alertas e a fila zerar |
 
 ```mermaid
 gantt
-    title Linha do tempo de uma execução (≈ 16 min de carga)
+    title Linha do tempo de uma execução (≈ 8 min de carga)
     dateFormat  HH:mm
     axisFormat  %H:%M
     section Preparação
@@ -138,15 +138,15 @@ gantt
     Sink + assinatura SNS                :prep2, after prep1, 1m
     section Carga
     Smoke 50 TPS                         :load0, after prep2, 1m
-    Aquecimento 200 a 1000 TPS           :load1, after load0, 3m
-    Sustentado 1000 TPS (medição)        :crit, load2, after load1, 10m
-    Drain                                :load3, after load2, 2m
+    Aquecimento 200 a 1000 TPS           :load1, after load0, 90s
+    Sustentado 1000 TPS (medição)        :crit, load2, after load1, 5m
+    Drain                                :load3, after load2, 1m
     section Encerramento
     Coleta de métricas e relatório       :end1, after load3, 5m
     Remove sink e pausa (aws-pause)      :end2, after end1, 5m
 ```
 
-A janela de medição para os critérios de aceite é **só a etapa 2**. O aquecimento aparece no relatório, mas não entra nos percentis.
+A janela de medição para os critérios de aceite é **só a etapa 2**. Os tempos são os padrões do `loadtest.sh` (`--duration`, `--warmup`, `--drain` mudam cada um); valores menores reduzem o custo de SQS e do ambiente ligado, e 5 min a 1% de alertas ainda dão amostras suficientes para o p99. O aquecimento aparece no relatório, mas não entra nos percentis.
 
 ### Segunda rodada (opcional, depois de passar)
 
@@ -211,10 +211,10 @@ flowchart TD
     G0 -- não --> FIX[Corrigir permissão / SigV4 / sink<br/>NÃO seguir para 1000 TPS]
     FIX --> E0
     G0 -- sim --> E1[Etapa 1: aquecimento 200 a 1000 TPS]
-    E1 --> E2[Etapa 2: 1000 TPS por 10 min]
+    E1 --> E2[Etapa 2: 1000 TPS por 5 min]
     E2 --> AB{Abortar?<br/>DLQ crescendo, idade da fila > 60 s<br/>ou RDS CPU > 90%}
     AB -- sim --> STOP[Parar a task k6<br/>registrar o ponto de falha]
-    AB -- não --> E3[Etapa 3: drain 2 min]
+    AB -- não --> E3[Etapa 3: drain 1 min]
     STOP --> C
     E3 --> C[Coletar resumo do k6<br/>+ métricas CloudWatch da janela]
     C --> CL[Remover sink e assinatura]
@@ -344,7 +344,7 @@ flowchart LR
 ### 8.3 Leitura dos percentis
 
 - **p95/p99 do serviço** é o número que responde ao enunciado. O e2e acompanha o serviço mais ~dezenas de ms de fan-out; uma diferença grande entre os dois aponta para SNS/SQS ou para o relógio.
-- A latência **não deve crescer ao longo dos 10 min**. Um gráfico de p95 por minuto com inclinação positiva indica acúmulo (memória, conexões, backlog) mesmo que a média final passe.
+- A latência **não deve crescer ao longo dos 5 min**. Um gráfico de p95 por minuto com inclinação positiva indica acúmulo (memória, conexões, backlog) mesmo que a média final passe.
 - Os primeiros minutos após escalar mostram picos esperados (tasks novas, pool frio). Eles ficam na etapa 1 e não entram na medição.
 - Mensagens entregues após retentativa (`ApproximateReceiveCount > 1`) têm latência maior por construção (visibility timeout de 10 s em `transactions`). Quantificar quantas foram, em vez de tratá-las como erro.
 
@@ -362,7 +362,7 @@ flowchart LR
 | **Esquecer o ambiente ligado** | O `loadtest.sh` reverte o override ao final e aceita `--pause` para pausar o ambiente (ECS=0, RDS parado); sem a flag, ele lembra de rodar `/aws-pause`. O orçamento mensal (`monthly_budget_usd`) tem alarme |
 | **Dados pessoais** | Os eventos são sintéticos (`cus_k6_*`, `acc_k6_*`); nada de PII. A task role do gerador é restrita ao necessário |
 
-**Custo estimado de uma execução** (≈ 16 min de carga, mais o tempo de ambiente ligado): 1.000 TPS × 960 s ≈ 960 mil mensagens. Os custos de SQS (envio + recebimento + exclusão ≈ 3 requisições por mensagem, sem lote no envio) e SNS são da ordem de poucos dólares; o que pesa é o ambiente ligado (RDS, NAT, Fargate), já coberto pelo perfil `lean` e por `aws-pause`. Estimar o valor real após a primeira execução e registrar no relatório.
+**Custo estimado de uma execução** (≈ 8 min de carga, mais o tempo de ambiente ligado): 1.000 TPS × ~450 s ≈ 450 mil mensagens. Os custos de SQS (envio + recebimento + exclusão ≈ 3 requisições por mensagem, sem lote no envio) e SNS são da ordem de poucos dólares; o que pesa é o ambiente ligado (RDS, NAT, Fargate), já coberto pelo perfil `lean` e por `aws-pause`. Estimar o valor real após a primeira execução e registrar no relatório.
 
 ---
 

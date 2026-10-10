@@ -80,19 +80,22 @@ set_autoscaling() { # <min> <max>
 }
 
 # Plano salvo + apply do arquivo (nunca -auto-approve): tf_apply <args do terraform plan>
-# O provider da AWS (binário grande) às vezes não responde a tempo no WSL ("Plugin did not respond"):
-# repete o plan nesses casos (e só neles).
+# O provider da AWS (binário grande) às vezes não responde a tempo no WSL ("Plugin did not respond"),
+# tanto no plan quanto no apply. Nesses casos (e só neles) refaz o ciclo todo: o novo plan reflete
+# qualquer progresso parcial do apply anterior.
 tf_apply() {
   local f="$TF_DIR/.apply.plan" out attempt rc
   for attempt in 1 2 3; do
     rc=0; out="$(tf plan -input=false -out="$f" "$@" 2>&1)" || rc=$?
-    [ "$rc" = 0 ] && break
+    if [ "$rc" = 0 ]; then
+      printf '%s\n' "$out" | tail -3
+      out="$(tf apply -input=false "$f" 2>&1)" && { printf '%s\n' "$out"; rm -f "$f"; return 0; }
+      rc=$?
+    fi
+    rm -f "$f"
     if [ "$attempt" -lt 3 ] && grep -qE "Plugin did not respond|Failed to load plugin schemas|plugin.*(exited|crashed)" <<<"$out"; then
-      log "provider do Terraform não respondeu; tentando de novo ($attempt/3)"; sleep 5; continue
+      log "provider do Terraform não respondeu; tentando de novo ($attempt/3)"; sleep 10; continue
     fi
     printf '%s\n' "$out" >&2; return "$rc"
   done
-  printf '%s\n' "$out" | tail -3
-  tf apply -input=false "$f"
-  rm -f "$f"
 }

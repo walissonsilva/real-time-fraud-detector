@@ -3,7 +3,7 @@
 # On-Demand (loadtest.tfvars), cria a fila-sink assinada no tópico, roda o smoke e a execução principal em
 # tasks Fargate, grava o resumo/HTML localmente, coleta o CloudWatch, avalia C1-C11 e reverte o override.
 #
-# Uso: loadtest.sh <lean|full> [--rate 1000] [--duration 600] [--warmup 180] [--drain 120] [--alert-rate 0.01]
+# Uso: loadtest.sh <lean|full> [--rate 1000] [--duration 300] [--warmup 90] [--drain 60] [--alert-rate 0.01]
 #                  [--cpu 2048 --memory 4096] [--skip-smoke] [--keep] [--pause] [--purge] [--yes]
 #   --keep   não reverte o override On-Demand ao final (para repetir sem reaplicar)
 #   --pause  chama pause.sh ao final (ECS=0, RDS parado)
@@ -12,7 +12,7 @@
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
 PROFILE="${1:-}"; shift || true
-RATE=1000; DURATION=600; WARMUP=180; DRAIN=120; ALERT_RATE=0.01; CPU=2048; MEMORY=4096
+RATE=1000; DURATION=300; WARMUP=90; DRAIN=60; ALERT_RATE=0.01; CPU=2048; MEMORY=4096
 SKIP_SMOKE=0; KEEP=0; PAUSE=0; PURGE=0; ASSUME_YES=0
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -149,17 +149,19 @@ log "sink $SINK_NAME assinado em $TOPIC_NAME"
 # run_k6 <rótulo> <rate> <duration> <warmup> <drain> <alert-rate>
 # Define RUN_BASE (prefixo dos arquivos), RUN_START/RUN_END (ISO UTC) e RUN_EXIT (exit code do k6).
 run_k6() {
-  local label="$1" rate="$2" duration="$3" warmup="$4" drain="$5" arate="$6"
+  local label="$1" rate="$2" duration="$3" warmup="$4" drain="$5" arate="$6" p95="${7:-}" p99="${8:-}"
   local run_id; run_id="$(date +%s | sha256sum | cut -c1-8)"
   local stamp; stamp="$(date -u +%Y%m%dT%H%M%SZ)"
   RUN_BASE="$RESULTS_DIR/${stamp}-aws-${label}-${run_id}"
   mkdir -p "$RESULTS_DIR"
   local env_json
-  env_json="$(python3 - "$run_id" "$rate" "$duration" "$warmup" "$drain" "$arate" "$SINK_URL" <<'PY'
+  env_json="$(python3 - "$run_id" "$rate" "$duration" "$warmup" "$drain" "$arate" "$SINK_URL" "$p95" "$p99" <<'PY'
 import json, sys
-run_id, rate, duration, warmup, drain, arate, sink = sys.argv[1:8]
+run_id, rate, duration, warmup, drain, arate, sink, p95, p99 = sys.argv[1:10]
 env = {"RUN_ID": run_id, "RATE": rate, "DURATION_SECONDS": duration, "WARMUP_SECONDS": warmup, "DRAIN_SECONDS": drain,
        "ALERT_RATE": arate, "SINK_QUEUE_URL": sink}
+if p95: env["P95_MS"] = p95
+if p99: env["P99_MS"] = p99
 print(json.dumps({"containerOverrides": [{"name": "loadtest", "environment": [{"name": k, "value": v} for k, v in env.items()]}]}))
 PY
 )"
@@ -209,7 +211,8 @@ fetch_artifacts() { # <task_id> <run_id> <base>
 
 PASSED=1
 if [ "$SKIP_SMOKE" = 0 ]; then
-  run_k6 smoke 50 60 0 30 0.2
+  # O smoke valida o caminho (permissões, SigV4, sink, entrega): ~600 alertas não sustentam um p99, então a latência só falha acima de 5 s
+  run_k6 smoke 50 60 0 30 0.2 5000 5000
   if [ "$RUN_EXIT" != 0 ]; then
     PASSED=0; log "smoke FALHOU (exit $RUN_EXIT): corrija permissões/assinatura/sink antes de subir a carga"
   fi
