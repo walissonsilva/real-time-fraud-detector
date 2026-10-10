@@ -24,6 +24,7 @@
     "load:k6": "mkdir -p load/k6/results && docker run --rm -i --user \"$(id -u):$(id -g)\" --add-host=host.docker.internal:host-gateway -v \"$PWD/load/k6:/scripts:ro\" -v \"$PWD/load/k6/results:/results\" -e RATE -e DURATION_SECONDS -e DRAIN_SECONDS -e WARMUP_SECONDS -e WARMUP_START_RATE -e ALERT_RATE -e MAX_VUS -e ACCOUNTS -e P95_MS -e P99_MS -e AWS_ENDPOINT=${AWS_ENDPOINT:-http://host.docker.internal:4566} grafana/k6:0.55.0 run /scripts/fraud-latency.js"
   },
   "dependencies": {
+    "@aws-sdk/client-appconfigdata": "^3.1149.0",
     "@aws-sdk/client-sns": "^3.1147.0",
     "@aws-sdk/client-sqs": "^3.1147.0",
     "@nestjs/common": "^11.0.0",
@@ -45,6 +46,7 @@
     "@types/node": "^22.10.0",
     "@types/pg": "^8.11.10",
     "@types/supertest": "^6.0.2",
+    "ajv-draft-04": "^1.0.0",
     "eslint": "^9.39.5",
     "globals": "^17.13.0",
     "jest": "^29.7.0",
