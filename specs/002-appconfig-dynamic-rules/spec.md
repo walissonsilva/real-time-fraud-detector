@@ -18,7 +18,7 @@ O desafio técnico exige "extensibilidade das regras sem necessidade de redeploy
 
 - Q: Qual a estratégia padrão de rollout das regras? → A: Gradual curto como padrão (cerca de 10 min no total, com observação final de poucos minutos e rollback automático por alarme ativo); rollout imediato permitido por deployment, em urgências, sem janela de observação.
 - Q: Que alarmes disparam o rollback automático? → A: Saúde do processamento (erros, latência de alerta acima de 500 ms, crescimento de DLQ) mais taxa de alertas fora da faixa esperada em relação à linha de base (pico ou queda brusca).
-- Q: De onde vem o identificador de revisão usado em métricas, logs e alarmes? → A: Do número de versão atribuído pelo AppConfig a cada publicação (imutável e automático); o campo `revision` do documento só vale na fonte por arquivo (dev).
+- Q: De onde vem o identificador de revisão usado em métricas, logs e alarmes? → A: De um rótulo de versão numérico e monotônico definido na publicação (a API de dados do AppConfig devolve o rótulo, não o número da versão; ajuste feito no plano, ver research D-03); o campo `revision` do documento só vale na fonte por arquivo (dev).
 - Q: Quem pode publicar e implantar regras? → A: Um perfil de permissão dedicado a operadores de fraude, separado do perfil de deploy de código e da identidade das instâncias; toda ação auditada.
 
 ## User Scenarios & Testing *(mandatory)*
@@ -132,7 +132,7 @@ Uma pessoa desenvolvedora sobe o ambiente local (docker-compose) e roda os teste
 - **Duas revisões em trânsito durante o rollout**: instâncias podem estar temporariamente em revisões diferentes, mas cada transação é avaliada com um único conjunto.
 - **Logs de erro de regra**: citam apenas `ruleId` e regra violada, nunca valores de transação ou dados pessoais.
 - **Reversão para uma revisão já usada antes**: tratada como qualquer outra implantação.
-- **Documento sem campo `revision` ou com valor repetido**: sem efeito em produção, porque o identificador de revisão vem do número de versão do AppConfig, não do conteúdo do documento.
+- **Documento sem campo `revision` ou com valor repetido**: sem efeito em produção, porque o identificador de revisão vem do rótulo de versão definido na publicação, não do conteúdo do documento. Conteúdo sem rótulo numérico é rejeitado.
 
 ## Requirements *(mandatory)*
 
@@ -153,7 +153,7 @@ Uma pessoa desenvolvedora sobe o ambiente local (docker-compose) e roda os teste
 - **FR-013**: O sistema MUST tratar uma resposta vazia do serviço de configuração como "sem mudança", nunca como lista vazia de regras.
 - **FR-014**: O sistema MUST reabrir automaticamente a sessão de consulta quando ela expirar.
 - **FR-015**: Registros de erro de regra MUST citar apenas `ruleId` e a regra violada, nunca valores de transação ou dados pessoais.
-- **FR-016**: O sistema MUST expor, por instância, a revisão ativa (número de versão do AppConfig), a idade do último refresh bem-sucedido e o total de falhas de refresh.
+- **FR-016**: O sistema MUST expor, por instância, a revisão ativa (rótulo de versão numérico definido na publicação), a idade do último refresh bem-sucedido e o total de falhas de refresh.
 - **FR-017**: O sistema MUST ter alarme para idade do último refresh acima do limite (alinhado ao SLO de frescor das regras, até 30 s) e alarme para instâncias em revisões diferentes por tempo prolongado.
 - **FR-018**: A fonte das regras MUST ser selecionável por configuração entre arquivo e AppConfig; em desenvolvimento, testes e docker-compose vale o arquivo `config/rules.json`; em produção o padrão é o AppConfig e o arquivo não é lido.
 - **FR-019**: A infraestrutura do AppConfig MUST ser provisionada como código (aplicação, ambiente, perfil de configuração com validador de contrato, estratégia de deployment e deployment inicial), com permissões mínimas para a identidade das instâncias lerem a configuração.
@@ -165,7 +165,7 @@ Uma pessoa desenvolvedora sobe o ambiente local (docker-compose) e roda os teste
 ### Key Entities *(include if feature involves data)*
 
 - **Documento de regras**: conjunto versionado de regras no contrato Rule v1; é o que o operador publica.
-- **Revisão**: uma versão publicada e imutável do documento de regras, identificada pelo número de versão atribuído pelo AppConfig (na fonte por arquivo, pelo campo `revision` do documento); pode ser implantada ou revertida.
+- **Revisão**: uma versão publicada e imutável do documento de regras, identificada por um rótulo de versão numérico e monotônico definido na publicação (na fonte por arquivo, pelo campo `revision` do documento); pode ser implantada ou revertida.
 - **Conjunto ativo (snapshot)**: as regras validadas e compiladas que uma instância usa em memória; trocado por inteiro, nunca editado parcialmente.
 - **Deployment**: ato de tornar uma revisão ativa nas instâncias, com estratégia (gradual ou imediata) e, opcionalmente, alarme de reversão.
 - **Estado de frescor da instância**: revisão ativa, momento do último refresh bem-sucedido e contagem de falhas, usados para métricas e alarmes.

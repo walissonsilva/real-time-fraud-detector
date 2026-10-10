@@ -1,0 +1,199 @@
+{
+  "$schema": "http://json-schema.org/draft-04/schema#",
+  "title": "RulesDocument v1 (estrutura, draft 4)",
+  "description": "Validador estrutural do perfil do AppConfig. Verificação estrutural apenas: ruleId único, expressão compilável, ausência de WINDOWED na fase 1 e ao menos uma regra ACTIVE são verificados pelo script de publicação e pela instância (validateRulesDocument). Deve aceitar e rejeitar os mesmos exemplos estruturais que rules-document.v1.schema.json (teste no contracts:validate).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "rules"
+  ],
+  "properties": {
+    "revision": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "rules": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 200,
+      "items": {
+        "$ref": "#/definitions/rule"
+      }
+    }
+  },
+  "definitions": {
+    "rule": {
+      "description": "Estrutura de Rule v1 em JSON Schema draft 4 (o AppConfig só valida draft 4). Espelho de docs/contratos/rule.v1.schema.json sem if/then.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "ruleId",
+        "name",
+        "kind",
+        "severity",
+        "expression",
+        "mode"
+      ],
+      "properties": {
+        "ruleId": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9-]{2,62}$",
+          "description": "Estável entre versões."
+        },
+        "version": {
+          "type": "integer",
+          "minimum": 1,
+          "readOnly": true
+        },
+        "name": {
+          "type": "string",
+          "maxLength": 120
+        },
+        "description": {
+          "type": "string",
+          "maxLength": 1000
+        },
+        "kind": {
+          "enum": [
+            "STATELESS",
+            "WINDOWED"
+          ]
+        },
+        "severity": {
+          "enum": [
+            "LOW",
+            "MEDIUM",
+            "HIGH",
+            "CRITICAL"
+          ]
+        },
+        "weight": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100,
+          "default": 10,
+          "description": "Contribuição ao score agregado."
+        },
+        "mode": {
+          "enum": [
+            "ACTIVE",
+            "SHADOW"
+          ],
+          "description": "SHADOW avalia e registra, mas não gera alerta (RF-24)."
+        },
+        "appliesTo": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Pré-filtro barato aplicado antes da expressão.",
+          "properties": {
+            "transactionTypes": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "channels": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "eventTypes": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "params": {
+          "type": "object",
+          "additionalProperties": {
+            "type": [
+              "string",
+              "number",
+              "boolean",
+              "array"
+            ]
+          },
+          "description": "Parâmetros nomeados usados na expressão (ex.: limite). Permite ajuste sem reescrever a lógica."
+        },
+        "window": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "groupBy",
+            "durationSeconds",
+            "aggregation"
+          ],
+          "description": "Obrigatório quando kind = WINDOWED.",
+          "properties": {
+            "groupBy": {
+              "enum": [
+                "customerId",
+                "accountId",
+                "deviceIdHash",
+                "counterpartyIdToken"
+              ]
+            },
+            "durationSeconds": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 86400
+            },
+            "type": {
+              "enum": [
+                "SLIDING",
+                "TUMBLING"
+              ],
+              "default": "SLIDING"
+            },
+            "aggregation": {
+              "enum": [
+                "COUNT",
+                "SUM",
+                "DISTINCT_COUNT",
+                "MAX"
+              ]
+            },
+            "field": {
+              "type": "string",
+              "description": "Campo agregado (ex.: amount.minorUnits, origin.deviceIdHash). Dispensável para COUNT."
+            }
+          }
+        },
+        "expression": {
+          "type": "string",
+          "maxLength": 2000,
+          "description": "Expressão booleana (linguagem decidida no ADR-03; alvo: CEL). Variáveis: tx.* (evento), agg.* (janela), params.*. Sem efeitos colaterais, sem laços, com custo limitado."
+        },
+        "reason": {
+          "type": "string",
+          "maxLength": 256,
+          "description": "Texto que explica o disparo no alerta; admite {placeholders} de agg/params."
+        },
+        "ttlSeconds": {
+          "type": "integer",
+          "minimum": 60,
+          "description": "TTL do estado da janela."
+        }
+      },
+      "anyOf": [
+        {
+          "properties": {
+            "kind": {
+              "enum": [
+                "STATELESS"
+              ]
+            }
+          }
+        },
+        {
+          "required": [
+            "window"
+          ]
+        }
+      ]
+    }
+  }
+}
