@@ -94,7 +94,7 @@ if aws ecr describe-images --repository-name "$LT_FAMILY" --image-ids "imageTag=
 else
   DOCKER_CONFIG="$(mktemp -d)"; export DOCKER_CONFIG; echo '{}' >"$DOCKER_CONFIG/config.json"
   aws ecr get-login-password | docker login --username AWS --password-stdin "${REPO%%/*}" >/dev/null
-  ARCH="$(tf console -var-file="$VARFILE" <<<'var.cpu_architecture' 2>/dev/null | tr -d '"')"
+  ARCH="$(tf console -lock=false -var-file="$VARFILE" <<<'var.cpu_architecture' 2>/dev/null | tail -1 | tr -d '"' || true)"
   PLATFORM="linux/amd64"; [ "$ARCH" = ARM64 ] && PLATFORM="linux/arm64"
   log "build da imagem do k6 ($PLATFORM)"
   docker buildx build --platform "$PLATFORM" -t "$REPO:$K6_TAG" --push "$K6_DIR"
