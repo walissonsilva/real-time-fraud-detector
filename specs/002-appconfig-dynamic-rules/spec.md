@@ -17,7 +17,7 @@ O desafio técnico exige "extensibilidade das regras sem necessidade de redeploy
 ### Session 2026-10-10
 
 - Q: Qual a estratégia padrão de rollout das regras? → A: Gradual curto como padrão (cerca de 10 min no total, com observação final de poucos minutos e rollback automático por alarme ativo); rollout imediato permitido por deployment, em urgências, sem janela de observação.
-- Q: Que alarmes disparam o rollback automático? → A: Saúde do processamento (erros, latência de alerta acima de 500 ms, crescimento de DLQ) mais taxa de alertas fora da faixa esperada em relação à linha de base (pico ou queda brusca).
+- Q: Que alarmes disparam o rollback automático? → A: Saúde do processamento (mensagens na DLQ e atraso da fila de transações), falhas de refresh das instâncias e taxa de alertas fora da faixa esperada em relação à linha de base (pico ou queda brusca). A latência de alerta ≤ 500 ms não é monitor de rollback; é verificada no teste de carga.
 - Q: De onde vem o identificador de revisão usado em métricas, logs e alarmes? → A: De um rótulo de versão numérico e monotônico definido na publicação (a API de dados do AppConfig devolve o rótulo, não o número da versão; ajuste feito no plano, ver research D-03); o campo `revision` do documento só vale na fonte por arquivo (dev).
 - Q: Quem pode publicar e implantar regras? → A: Um perfil de permissão dedicado a operadores de fraude, separado do perfil de deploy de código e da identidade das instâncias; toda ação auditada.
 
@@ -50,7 +50,7 @@ Depois de publicar uma alteração, o operador percebe que ela causa falsos posi
 **Acceptance Scenarios**:
 
 1. **Given** a revisão N+1 ativa, **When** o operador implanta novamente a revisão N, **Then** todas as instâncias voltam a avaliar com N, com o mesmo prazo da publicação normal.
-2. **Given** um rollout gradual da revisão N+1 em andamento, **When** um dos alarmes associados (saúde do processamento ou taxa de alertas fora da faixa) dispara, **Then** o rollout é revertido automaticamente para a revisão anterior.
+2. **Given** um rollout gradual da revisão N+1 em andamento, **When** um dos alarmes associados (saúde do processamento, falhas de refresh ou taxa de alertas fora da faixa) dispara, **Then** o rollout é revertido automaticamente para a revisão anterior.
 
 ---
 
@@ -141,7 +141,7 @@ Uma pessoa desenvolvedora sobe o ambiente local (docker-compose) e roda os teste
 - **FR-001**: O sistema MUST obter as regras de decisão de um serviço de configuração gerenciado (AWS AppConfig) em produção, e permitir cadastrar e alterar regras sem redeploy nem reinício das instâncias.
 - **FR-002**: O sistema MUST consultar o serviço de configuração periodicamente, a cada 15 a 30 s, e aplicar uma nova revisão automaticamente quando ela existir.
 - **FR-003**: O sistema MUST permitir o rollback para uma revisão anterior sem redeploy, com o mesmo prazo de propagação de uma publicação normal.
-- **FR-004**: O sistema MUST suportar rollback automático quando um alarme operacional associado disparar durante um rollout gradual. Os alarmes associados MUST cobrir a saúde do processamento (erros, latência de alerta acima de 500 ms, crescimento de DLQ) e a taxa de alertas fora da faixa esperada em relação à linha de base (pico ou queda brusca).
+- **FR-004**: O sistema MUST suportar rollback automático quando um alarme operacional associado disparar durante um rollout gradual. Os alarmes associados MUST cobrir a saúde do processamento (mensagens na DLQ e atraso da fila de transações), as falhas de refresh das instâncias e a taxa de alertas fora da faixa esperada em relação à linha de base (pico ou queda brusca).
 - **FR-005**: O documento de regras MUST ser validado contra o contrato Rule v1 no momento da publicação, de modo que um documento fora do contrato não seja distribuído.
 - **FR-006**: Cada instância MUST validar e compilar o conjunto recebido antes de ativá-lo, com as mesmas regras de hoje: contrato, sintaxe, custo, rejeição de regras dependentes de janela na fase 1, ao menos uma regra `ACTIVE` e `ruleId` sem duplicidade.
 - **FR-007**: Uma regra ou documento inválido MUST NOT ser ativado; o conjunto atual permanece em uso.
@@ -156,7 +156,7 @@ Uma pessoa desenvolvedora sobe o ambiente local (docker-compose) e roda os teste
 - **FR-016**: O sistema MUST expor, por instância, a revisão ativa (rótulo de versão numérico definido na publicação), a idade do último refresh bem-sucedido e o total de falhas de refresh.
 - **FR-017**: O sistema MUST ter alarme para idade do último refresh acima do limite (alinhado ao SLO de frescor das regras, até 30 s) e alarme para instâncias em revisões diferentes por tempo prolongado.
 - **FR-018**: A fonte das regras MUST ser selecionável por configuração entre arquivo e AppConfig; em desenvolvimento, testes e docker-compose vale o arquivo `config/rules.json`; em produção o padrão é o AppConfig e o arquivo não é lido.
-- **FR-019**: A infraestrutura do AppConfig MUST ser provisionada como código (aplicação, ambiente, perfil de configuração com validador de contrato, estratégia de deployment e deployment inicial), com permissões mínimas para a identidade das instâncias lerem a configuração.
+- **FR-019**: A infraestrutura do AppConfig MUST ser provisionada como código (aplicação, ambiente, perfil de configuração com validador de contrato e estratégias de deployment); a primeira revisão de regras é semeada por script depois do provisionamento, e até lá as instâncias não sobem (fail-fast), com permissões mínimas para a identidade das instâncias lerem a configuração.
 - **FR-020**: Os alarmes e as métricas desta feature MUST ser integrados ao monitoramento existente.
 - **FR-021**: O comportamento de avaliação das regras (resultado para uma mesma transação e um mesmo conjunto de regras) MUST ser idêntico ao atual, qualquer que seja a fonte.
 - **FR-022**: A estratégia padrão de deployment de regras MUST ser gradual e curta (cerca de 10 min no total, com observação final de poucos minutos), com o rollback automático por alarme ativo durante a janela. Um deployment imediato (sem janela de observação) MUST ser possível por escolha explícita do operador, para urgências.
@@ -192,5 +192,5 @@ Uma pessoa desenvolvedora sobe o ambiente local (docker-compose) e roda os teste
 - Não há fluxo de rascunho e aprovação, nem interface gráfica de edição; o operador (com o perfil dedicado de FR-023) publica o documento pelo console ou pela linha de comando do provedor. A auditoria é limitada ao histórico de versões e deployments e ao registro de chamadas da conta.
 - Regras que exijam campo ou função nova no motor continuam exigindo deploy; regras dependentes de janela (fase 2) continuam rejeitadas.
 - O ambiente local não usa o AppConfig, que não é emulado de forma confiável localmente; o arquivo `config/rules.json` cobre dev e testes.
-- Existe um limite de tolerância configurável para "revisões diferentes por tempo prolongado"; o valor inicial será definido no plano.
+- Existe um limite de tolerância configurável para "revisões diferentes por tempo prolongado"; o valor inicial é 20 min (maior que o rollout de 10 min mais o *bake* de 5 min).
 - **Alinhamento com a constituição**: o Princípio VI (v2.1.0) prevê regras alteradas em tempo de execução por uma fonte de configuração gerenciada (AWS AppConfig em produção), com validação prévia, troca atômica, fail-fast na partida, última versão válida em execução e sem fallback embutido em produção. Esta feature implementa exatamente esse princípio, sem desvio a justificar.

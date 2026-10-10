@@ -61,7 +61,7 @@ Ver [data-model.md](../data-model.md#métricas-nomes-estáveis). Namespace Cloud
 | `rules-revision-diverged` | `MAX − MIN` de `RulesActiveRevision` > 0 por 20 min | Notifica o tópico `ops` |
 | `rules-alert-rate-anomaly` | `AlertsCreated` fora da banda de anomalia | Notifica `ops` e participa do rollback automático |
 | `rules-refresh-failures` | `RulesRefreshFailures` > 0 em 2 de 3 períodos de 1 min | Notifica `ops` e participa do rollback automático (reverte documento rejeitado pelas instâncias) |
-| Alarmes de saúde existentes (DLQ, idade da fila) e latência/erros | Já existentes ou novos | Participam do rollback automático (monitores do ambiente) |
+| Alarmes de saúde existentes (`dlq_not_empty` de cada DLQ e `transactions_age`) | Já existentes | Participam do rollback automático (monitores do ambiente) |
 
 ## 6. Rede
 
