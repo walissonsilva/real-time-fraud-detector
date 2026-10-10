@@ -9,5 +9,6 @@
 | [ADR-03](ADR-03-motor-de-regras.md) | Regras como dados no Postgres, recarga por *polling*; CEL ou JSON Logic **em aberto** | proposto, linguagem em aberto |
 | [ADR-04](ADR-04-armazenamento.md) | PostgreSQL com *outbox*, publicação inline e relay; DynamoDB descartado por ora | proposto |
 | [ADR-05](ADR-05-estrategia-de-degradacao.md) | *Fail-open* com marcação `degraded`; Postgres fora gera *backpressure* | proposto |
+| [ADR-06](ADR-06-outbox-cdc-debezium.md) | Outbox com CDC (Debezium + Kafka) **não** substitui a publicação inline com relay | proposto |
 
 Fora do escopo por decisão do autor: arquivo de eventos brutos em S3 (P-20 fica como desenho).
