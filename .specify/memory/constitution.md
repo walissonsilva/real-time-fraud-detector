@@ -1,15 +1,17 @@
 <!--
 Sync Impact Report
-- Version change: 1.0.0 → 2.0.0
-- Princípios modificados: I (Arquitetura Hexagonal → Arquitetura Modular NestJS); VI (referência à porta `RuleEngine` → serviço `DeclarativeRuleEngine`)
-- Seções adicionadas: Princípios I–VII, Restrições Técnicas e de Segurança,
-  Fluxo de Desenvolvimento e Portões de Qualidade, Governança
+- Version change: 2.0.0 → 2.1.0
+- Princípios modificados: VI (regras "criadas e alteradas via API" → fonte de configuração gerenciada, AWS AppConfig em produção, com validação prévia, troca atômica, fail-fast na partida, última versão válida em execução e sem fallback embutido em produção)
+- Seções modificadas: Restrições Técnicas e de Segurança (AWS AppConfig na stack)
+- Seções adicionadas: nenhuma
 - Seções removidas: nenhuma
 - Templates:
-  - ✅ .specify/templates/plan-template.md (Constitution Check já referencia este arquivo; sem mudança)
-  - ✅ .specify/templates/spec-template.md (sem mudança necessária)
-  - ✅ .specify/templates/tasks-template.md (sem mudança necessária)
-  - ✅ AGENTS.md (regras de commit e leitura de docs/ permanecem consistentes)
+  - ✅ .specify/templates/plan-template.md (sem mudança)
+  - ✅ .specify/templates/spec-template.md (sem mudança)
+  - ✅ .specify/templates/tasks-template.md (sem mudança)
+  - ✅ AGENTS.md (sem mudança)
+  - ✅ docs/adr/ADR-03-motor-de-regras.md (decisão que fundamenta esta emenda)
+  - ⚠ specs/002-appconfig-dynamic-rules/spec.md (Assumptions cita o conflito com o Princípio VI; atualizar quando conveniente)
 - TODOs adiados: nenhum
 -->
 # Real-Time Fraud Detector Constitution
@@ -58,11 +60,21 @@ teste de carga ou benchmark proporcional à mudança.
 Racional: escala e latência são os requisitos que mais restringem as decisões de arquitetura.
 
 ### VI. Regras Extensíveis sem Redeploy
-Regras de detecção MUST ser dados versionados (contrato `rule`/`rule-version`), criados e
-alterados em tempo de execução via API, com histórico de versões. Adicionar ou ajustar uma regra
-MUST NOT exigir novo deploy. O motor MUST avaliar regras por meio do serviço `DeclarativeRuleEngine` (módulo `rules`), sem
-lógica de regra específica no código dos adaptadores.
-Racional: o desafio exige extensibilidade sem redeploy.
+Regras de detecção MUST ser dados versionados (contrato `rule`), criados e alterados em tempo
+de execução por uma fonte de configuração gerenciada (em produção, AWS AppConfig; ver ADR-03),
+com histórico de versões e possibilidade de rollback. Adicionar, ajustar ou reverter uma regra
+MUST NOT exigir novo deploy. Um documento de regras MUST ser validado antes de ser ativado, e uma
+regra inválida MUST NOT entrar em produção. A troca do conjunto de regras MUST ser atômica; o
+caminho crítico MUST NOT consultar a fonte de regras (as regras ficam em memória). Na partida, a
+ausência de regras válidas MUST impedir o serviço de iniciar; em execução, uma falha da fonte
+MUST manter a última versão válida, com métricas e alarme de defasagem. Em produção NÃO há
+fallback para regras embutidas na imagem; o arquivo `config/rules.json` serve apenas a
+desenvolvimento e testes. O motor MUST avaliar regras por meio do serviço
+`DeclarativeRuleEngine` (módulo `rules`), sem lógica de regra específica no código dos
+adaptadores.
+Racional: o desafio exige extensibilidade sem redeploy; a fonte gerenciada entrega versões,
+rollout gradual e rollback, e nunca operar com regras desatualizadas sem aviso é preferível a
+subir com um fallback silencioso.
 
 ### VII. Segurança, Privacidade e Observabilidade
 Dados MUST ser cifrados em trânsito e em repouso; a comunicação entre serviços MUST ser
@@ -75,7 +87,8 @@ Racional: segurança ponta a ponta e monitoramento operacional são exigências 
 ## Restrições Técnicas e de Segurança
 
 - Stack: Node.js ≥ 22, TypeScript, NestJS; Postgres (persistência), Redis (estado de janelas e
-  cache), SQS/SNS (mensageria, emulados com LocalStack localmente).
+  cache), SQS/SNS (mensageria, emulados com LocalStack localmente), AWS AppConfig (fonte das
+  regras em produção; localmente, o arquivo `config/rules.json`).
 - Qualquer nova tecnologia ou dependência relevante MUST ser justificada (o desafio exige
   justificativa das escolhas) e registrada como decisão arquitetural.
 - Mudanças de esquema do banco MUST ser feitas por migrações versionadas e reproduzíveis.
@@ -115,4 +128,4 @@ correções de redação.
 **Revisão de conformidade**: verificada no Constitution Check de cada plano e na revisão de
 cada mudança. Orientações de execução para agentes ficam em `AGENTS.md`.
 
-**Version**: 2.0.0 | **Ratified**: 2026-10-08 | **Last Amended**: 2026-10-08
+**Version**: 2.1.0 | **Ratified**: 2026-10-08 | **Last Amended**: 2026-10-10
