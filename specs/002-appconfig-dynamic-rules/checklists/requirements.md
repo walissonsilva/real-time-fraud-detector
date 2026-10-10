@@ -32,5 +32,5 @@
 ## Notes
 
 - O AWS AppConfig e o arquivo `config/rules.json` são citados por decisão explícita do usuário (restrição de escopo, não escolha de implementação); a spec não define SDK, estrutura de código nem recursos de infraestrutura específicos.
-- O Princípio VI da constituição ("regras criadas e alteradas via API") diverge desta feature. Registrado em Assumptions; deve ser tratado no Constitution Check do `/speckit-plan` (desvio justificado ou emenda).
+- O Princípio VI da constituição foi emendado (v2.1.0) para a fonte de configuração gerenciada; esta feature está alinhada a ele e não exige desvio no Constitution Check do `/speckit-plan`.
 - Valor do limite de tolerância para "revisões diferentes por tempo prolongado" fica para o plano.
