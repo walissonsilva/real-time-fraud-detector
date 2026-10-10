@@ -158,7 +158,22 @@ variable "enable_loadtest" {
   default = false
 }
 variable "loadtest_image" {
-  description = "Imagem do gerador de carga (precisa de acesso: Docker Hub exige NAT; ECR funciona com endpoints)."
+  description = "Imagem completa do gerador de carga. Vazio usa o repositório ECR do teste (aws_ecr_repository.loadtest) com loadtest_image_tag."
   type        = string
-  default     = "grafana/k6:0.55.0"
+  default     = ""
+}
+variable "loadtest_image_tag" {
+  description = "Tag da imagem do k6 no ECR (definida pelo loadtest.sh)."
+  type        = string
+  default     = "none"
+}
+variable "loadtest_cpu" {
+  description = "CPU da task do k6. Comece com 2048; suba para 4096 se o gerador saturar (dropped_iterations > 0)."
+  type        = number
+  default     = 2048
+}
+variable "loadtest_memory" {
+  description = "Memória (MiB) da task do k6; 4096 para 2 vCPU, 8192 para 4 vCPU."
+  type        = number
+  default     = 4096
 }

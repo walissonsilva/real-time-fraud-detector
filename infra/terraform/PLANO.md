@@ -30,9 +30,9 @@ Ações de economia operacional (ambos os perfis): `desired_count=0` no ECS e `a
 - Estimativa de custo `lean` ligado: da ordem de US$ 0,25–0,4/h (RDS pequeno + 3 tasks Spot + NAT + Redis); desligado, só storage/NAT. Validar com `infracost` antes do apply.
 
 ### Infra de teste de carga (módulo opcional `loadtest`, `enable_loadtest=true`)
-O `load/k6/fraud-latency.js` usa a API sem assinatura do LocalStack e **não roda na AWS**. Para o teste de 8k TPS é preciso:
+O `load/k6/fraud-latency.js` assina as requisições com SigV4 (`vendor/aws-signature`) e roda no LocalStack ou na AWS (`scripts/loadtest.sh`, ver `docs/teste-de-carga-aws-1000tps.md`). Para o teste de 8k TPS é preciso:
 - Task Fargate `k6` na VPC (subnet privada, `sg-loadtest`), com task role `loadtest-role`: `sqs:SendMessage` em `transactions`; `sqs:CreateQueue/DeleteQueue/ReceiveMessage/DeleteMessage/SetQueueAttributes/GetQueueAttributes` apenas em `alerts-loadtest*.fifo`; `sns:Subscribe/Unsubscribe` em `alerts.fifo`; fila-sink com policy do SNS.
-- Ajuste de código (fora do Terraform): assinar requests com SigV4 (xk6-sqs/ou adaptar `scripts/load-test.ts` com AWS SDK, que já suporta credenciais da role). Registrar como pendência 6.
+- Código: feito (SigV4, envio individual, sink externo, saída dos resultados via CloudWatch Logs).
 - Para 8k TPS, 1 gerador k6 pequeno costuma bastar; para 25k, N tasks em paralelo.
 
 ## Execução e acompanhamento do plano
@@ -152,9 +152,9 @@ Provider AWS ~> 5.x, `default_tags` (Project, Env=production, ManagedBy=terrafor
 1. **Migrations (necessárias na cloud: o RDS nasce vazio e o `/health/ready` só faz `SELECT 1`)**: em `nest-cli.json` adicionar `assets` copiando `database/migrations/*.sql` para `dist`; o `migrate.ts` já é compilado para `dist/database/migrate.js` (confirmar no build) e `pg` é dependência de produção. Terraform cria a task definition `fraud-detector-migrate` (mesma imagem, comando `node dist/database/migrate.js`), executada com `aws ecs run-task` antes de escalar o serviço (depois, passo de pipeline). Descartado: migrar no startup (corrida entre tasks) e a partir da máquina local (exigiria expor o RDS).
 2. **ARN do tópico por env**: adicionar `SNS_ALERTS_TOPIC_ARN` (opcional) em `src/config/config.module.ts` e `.env.example`; `SnsEventBus` usa o ARN se definido e mantém o `CreateTopic` como fallback (LocalStack/compose inalterados). Atualizar `sns-event-bus.spec.ts`. No ECS o Terraform injeta o ARN e a task role fica **sem** `sns:CreateTopic`.
 3. **Redis**: manter ElastiCache (custo) ou relaxar `REDIS_URL` como opcional enquanto não for usado.
-4. **Load test k6** usa API sem SigV4 do LocalStack; não roda contra a AWS real.
+4. ~~**Load test k6** usa API sem SigV4~~ resolvido: o k6 assina com SigV4 e tem imagem própria no ECR.
 5. Domínio/ALB/WAF: não necessários agora (sem endpoint público).
-6. **k6/load test**: adaptar para SigV4/AWS SDK (ver módulo `loadtest`).
+6. ~~**k6/load test**: adaptar para SigV4~~ resolvido (ver item 4). Falta apenas a primeira execução real na AWS.
 
 > Nota: os valores da tabela de perfis (classes, nº de tasks) são pontos de partida a calibrar no 1º teste; as seções 2–8 abaixo descrevem o perfil `full` e o `lean` aplica as reduções da tabela.
 

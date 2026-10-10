@@ -31,3 +31,12 @@ output "alerts_topic_arn" {
 output "log_groups" {
   value = [aws_cloudwatch_log_group.app.name, aws_cloudwatch_log_group.migrate.name]
 }
+output "loadtest_ecr_repository_url" {
+  value = try(aws_ecr_repository.loadtest[0].repository_url, null)
+}
+output "loadtest_log_group" {
+  value = try(aws_cloudwatch_log_group.loadtest[0].name, null)
+}
+output "alerts_topic_name" {
+  value = aws_sns_topic.alerts.name
+}

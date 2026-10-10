@@ -140,6 +140,8 @@ resource "aws_ecs_service" "app" {
   deployment_minimum_healthy_percent = 100
   deployment_maximum_percent         = 200
   enable_execute_command             = false
+  # Trocar a estratégia de capacity providers (Spot <-> On-Demand do loadtest.tfvars) exige redeploy.
+  force_new_deployment = true
 
   dynamic "capacity_provider_strategy" {
     for_each = { for k, v in {
@@ -198,6 +200,12 @@ resource "aws_appautoscaling_policy" "cpu" {
 }
 
 # ---------- Gerador de carga (opcional) ----------
+locals {
+  loadtest_image = var.loadtest_image != "" ? var.loadtest_image : (
+    var.enable_loadtest ? "${aws_ecr_repository.loadtest[0].repository_url}:${var.loadtest_image_tag}" : ""
+  )
+}
+
 resource "aws_cloudwatch_log_group" "loadtest" {
   count             = var.enable_loadtest ? 1 : 0
   name              = "/ecs/${var.name}-loadtest"
@@ -210,8 +218,8 @@ resource "aws_ecs_task_definition" "loadtest" {
   family                   = "${var.name}-loadtest"
   requires_compatibilities = ["FARGATE"]
   network_mode             = "awsvpc"
-  cpu                      = 2048
-  memory                   = 4096
+  cpu                      = var.loadtest_cpu
+  memory                   = var.loadtest_memory
   execution_role_arn       = aws_iam_role.execution.arn
   task_role_arn            = aws_iam_role.loadtest[0].arn
 
@@ -222,12 +230,13 @@ resource "aws_ecs_task_definition" "loadtest" {
 
   container_definitions = jsonencode([{
     name      = "loadtest"
-    image     = var.loadtest_image
+    image     = local.loadtest_image
     essential = true
     environment = [
       { name = "AWS_REGION", value = var.region },
       { name = "SNS_ALERTS_TOPIC_ARN", value = aws_sns_topic.alerts.arn },
       { name = "SQS_TRANSACTIONS_QUEUE", value = aws_sqs_queue.transactions.name },
+      { name = "RESULTS_MODE", value = "stdout" },
     ]
     logConfiguration = {
       logDriver = "awslogs"

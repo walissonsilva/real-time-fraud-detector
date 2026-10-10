@@ -1,6 +1,6 @@
 # Teste de carga na AWS — 1.000 TPS com k6
 
-> Status: **plano (nada implementado)**. Este documento descreve como o teste será feito e como os resultados serão avaliados. A implementação só começa quando for pedida explicitamente.
+> Status: **implementado, ainda não executado na AWS**. Este documento descreve como o teste é feito e como os resultados são avaliados. Execução: `infra/terraform/scripts/loadtest.sh <lean|full>` (skill `/aws-loadtest`).
 > Contexto: o teste atual (`load/k6/`, ver [README](../load/k6/README.md)) roda contra o LocalStack e serve como regressão. Aqui o alvo é o ambiente real na AWS (perfil `lean`, ver [infra/terraform](../infra/terraform/README.md)).
 
 ## Sumário
@@ -157,9 +157,9 @@ A janela de medição para os critérios de aceite é **só a etapa 2**. O aquec
 
 ---
 
-## 4. O que precisa mudar (quando for implementar)
+## 4. O que mudou na implementação
 
-Nada disto foi feito. É a lista do que a implementação vai tocar.
+Lista do que foi alterado em relação ao teste local. Arquivos: `load/k6/fraud-latency.js`, `load/k6/Dockerfile`, `load/k6/vendor/`, `infra/terraform/scripts/loadtest.sh`, `infra/terraform/scripts/loadtest_report.py`, `infra/terraform/envs/production/{ecr,ecs,variables,outputs}.tf`, `.claude/skills/aws-loadtest/`.
 
 ```mermaid
 flowchart TB
@@ -183,7 +183,7 @@ flowchart TB
 
 | # | Mudança | Detalhe |
 |---|---|---|
-| 1 | **Assinatura SigV4 no k6** | O k6 0.55 não assina requisições. Usar a lib `k6-jslib-aws` (`SQSClient` com `sendMessage`, `receiveMessages`, `deleteMessages`), lendo as credenciais da task role. Manter o modo LocalStack atrás de uma variável (`AWS_ENDPOINT`) para não perder o teste de regressão |
+| 1 | **Assinatura SigV4 no k6** | O k6 0.55 não assina requisições. O `SQSClient` da `k6-jslib-aws` 0.12.3 só tem `sendMessage` (sem receber/apagar), então o script usa só o `SignatureV4` da lib (vendorizado em `load/k6/vendor/`) para assinar as chamadas da API JSON do SQS (`SendMessage`, `ReceiveMessage`, `DeleteMessageBatch`) e do SNS. As credenciais vêm da task role (endpoint de credenciais do ECS). O mesmo caminho serve ao LocalStack (`AWS_ENDPOINT`, credenciais `test`), então o teste de regressão local continua funcionando |
 | 2 | **Envio individual (decidido)** | Um `SendMessage` por evento, como num produtor real: 1.000 requisições/s, cada evento com o próprio `occurredAt` (sem diluir o carimbo da latência). O custo é no gerador: assinar SigV4 e abrir TLS 1.000 vezes por segundo. Mitigações: começar com a task atual do k6 (2 vCPU / 4 GB; a necessidade real é uma estimativa, não foi medida), subir para 4 vCPU / 8 GB só se o smoke ou o aquecimento mostrarem saturação do gerador (`dropped_iterations` > 0 ou CPU da task do k6 > ~80%), VUs suficientes (≈ 1.000 × tempo de resposta do SQS, ~20 a 50 ms, ou seja 20 a 50 VUs ativos; `MAX_VUS` com folga), conexões HTTP reutilizadas. O smoke de 50 TPS e o aquecimento medem o teto do gerador antes da etapa principal. Se `dropped_iterations` > 0 mesmo com 4 vCPU, dividir em 2 tasks de 500 TPS (cada uma com seu `runId`) |
 | 3 | **Sink fora do k6** | A lib não tem SNS. O script cria a fila FIFO, a policy que permite o tópico entregar nela e a assinatura (`RawMessageDelivery=true`), e remove tudo no fim |
 | 4 | **Contagem de duplicados** | Hoje o k6 só conta alertas recebidos. Acrescentar o conjunto de `transactionId` já vistos e uma métrica `alerts_duplicated` (o FIFO deduplica por 5 min, mas queremos provar que o sistema não duplica) |
@@ -191,7 +191,7 @@ flowchart TB
 | 6 | **Imagem do k6** | A task usa `grafana/k6:0.55.0` do Docker Hub (precisa do NAT, que o `lean` tem). O script do teste precisa chegar à task: empacotar em imagem própria no ECR (`FROM grafana/k6`, `COPY fraud-latency.js`) ou passar via variável. A imagem própria é mais simples e reprodutível |
 | 7 | **Variáveis do Terraform** | Subir com `-var-file=lean.tfvars -var-file=loadtest.tfvars` (já criado; liga `enable_loadtest` e deixa o serviço On-Demand). O `ecs.tf` fixa a task do gerador em 2 vCPU / 4 GB, que é o ponto de partida; tornar o tamanho configurável é só uma otimização, caso o gerador sature. A task role já prevê `SendMessage` em `transactions`, gerência das filas `alerts-loadtest*.fifo` e `Subscribe/Unsubscribe` no tópico; conferir e ajustar quando for aplicar |
 | 8 | **Pendência de bundle** | `handleSummary` baixa o `k6-reporter` do GitHub no momento da execução. Na AWS, vendorizar o arquivo na imagem para não depender de saída para a internet |
-| 9 | **Resultados em HTML local** | A task Fargate não tem disco acessível. `handleSummary` imprime o `.json` e o `.html` no stdout, em base64 e em blocos de até ~200 KB (o limite de um evento do CloudWatch Logs é 256 KB), entre marcadores (`===K6-HTML-BEGIN <runId>===` ... `===K6-HTML-END===`). O `loadtest.sh` lê os logs da task (`aws logs get-log-events`), remonta os blocos e grava `load/k6/results/<timestamp>-aws.{txt,json,html}`, o mesmo diretório e formato do teste local (ignorado pelo git). Se o HTML não couber de forma prática, o fallback é um bucket S3 temporário na conta (ver seção 11) |
+| 9 | **Resultados em HTML local** | A task Fargate não tem disco acessível. `handleSummary` imprime o `.json` e o `.html` no stdout, em base64 e em blocos de até ~200 KB (o limite de um evento do CloudWatch Logs é 256 KB), em linhas `K6ART|<runId>.<ext>|<índice>|<total>|<base64>`. O `loadtest.sh` lê os logs da task (`aws logs filter-log-events`), remonta os blocos e grava `load/k6/results/<timestamp>-aws.{txt,json,html}`, o mesmo diretório e formato do teste local (ignorado pelo git). Se o HTML não couber de forma prática, o fallback é um bucket S3 temporário na conta (ver seção 11) |
 
 ---
 
@@ -359,7 +359,7 @@ flowchart LR
 | **Gerador vira o gargalo** (envio individual: 1.000 assinaturas SigV4/s) | Critério C1 e `dropped_iterations` denunciam; começa com 2 vCPU, smoke e aquecimento medem o teto antes (CPU da task do k6 > ~80% = subir para 4 vCPU); plano B de 2 tasks de 500 TPS |
 | **Acumular lixo no banco** | O teste grava `alerts`, `outbox` e `deliveries` (~6.000 alertas por execução). Os IDs têm prefixo `k6-<runId>-` para limpar depois, ou o ambiente é destruído no fim |
 | **Eventos do teste chegando a canais reais** | Os canais são simulados (`CHANNEL_*_FAIL`, provedores internos), sem destinatários reais. Confirmar antes de rodar |
-| **Esquecer o ambiente ligado** | O script termina chamando `aws-pause`; o orçamento mensal (`monthly_budget_usd`) tem alarme |
+| **Esquecer o ambiente ligado** | O `loadtest.sh` reverte o override ao final e aceita `--pause` para pausar o ambiente (ECS=0, RDS parado); sem a flag, ele lembra de rodar `/aws-pause`. O orçamento mensal (`monthly_budget_usd`) tem alarme |
 | **Dados pessoais** | Os eventos são sintéticos (`cus_k6_*`, `acc_k6_*`); nada de PII. A task role do gerador é restrita ao necessário |
 
 **Custo estimado de uma execução** (≈ 16 min de carga, mais o tempo de ambiente ligado): 1.000 TPS × 960 s ≈ 960 mil mensagens. Os custos de SQS (envio + recebimento + exclusão ≈ 3 requisições por mensagem, sem lote no envio) e SNS são da ordem de poucos dólares; o que pesa é o ambiente ligado (RDS, NAT, Fargate), já coberto pelo perfil `lean` e por `aws-pause`. Estimar o valor real após a primeira execução e registrar no relatório.

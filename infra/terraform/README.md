@@ -54,7 +54,7 @@ aws ecs update-service --cluster fraud-detector --service fraud-detector --desir
 - `lean` pode ser destruído (`terraform destroy -var-file=lean.tfvars`); `full` tem deletion protection no RDS.
 
 ## Teste de carga
-`-var enable_loadtest=true` cria a task definition, role, SG e logs do gerador. O `load/k6` ainda usa a API sem assinatura do LocalStack e precisa ser adaptado (SigV4) antes de rodar na AWS.
+O teste de carga k6 na AWS roda com `scripts/loadtest.sh <lean|full>` (skill `/aws-loadtest`): publica a imagem do k6 no ECR (`load/k6/Dockerfile`), aplica `loadtest.tfvars` (serviço On-Demand + `enable_loadtest`), roda o smoke e a execução principal em task Fargate na VPC, grava resumo/HTML em `load/k6/results/`, avalia os critérios e reverte o override. Ver `docs/teste-de-carga-aws-1000tps.md`.
 
 ## Scripts e skills de ciclo de vida
 Em `scripts/` (lógica versionada; as skills `/aws-up`, `/aws-pause`, `/aws-resume`, `/aws-destroy` em `.claude/skills/` são wrappers que pedem confirmação):

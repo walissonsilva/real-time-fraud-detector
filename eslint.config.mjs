@@ -3,8 +3,9 @@ import globals from 'globals';
 import tseslint from 'typescript-eslint';
 
 export default tseslint.config(
-  { ignores: ['dist/**', 'coverage/**', 'node_modules/**', 'docs/**', '.codex-remote-attachments/**'] },
+  { ignores: ['dist/**', 'coverage/**', 'node_modules/**', 'docs/**', 'load/k6/vendor/**', '.codex-remote-attachments/**'] },
   js.configs.recommended,
+  { files: ['load/k6/*.js'], languageOptions: { globals: { __ENV: 'readonly', __VU: 'readonly', __ITER: 'readonly', console: 'readonly' } } },
   ...tseslint.configs.recommended,
   {
     files: ['**/*.ts'],
