@@ -25,7 +25,7 @@ Regras de validade (aplicadas pelo script de publicação e pela instância, com
 
 | Campo | Tipo | Origem |
 |-------|------|--------|
-| `id` | inteiro positivo | `Version-Label` do AppConfig (carimbo UTC `YYYYMMDDHHMMSS`); em modo arquivo, o campo `revision` do documento |
+| `id` | inteiro positivo | `Version-Label` do AppConfig (`r` + carimbo UTC `YYYYMMDDHHMMSS`; o AppConfig rejeita rótulo só com dígitos); em modo arquivo, o campo `revision` do documento |
 
 Imutável. Uma revisão rejeitada nunca vira `RuleSnapshot`.
 

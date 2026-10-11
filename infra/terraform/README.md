@@ -49,7 +49,7 @@ permissões, mas **não** a primeira revisão. Sem ela, as tarefas não sobem (f
 cd ../../..   # raiz do repositório; precisa de `npm ci` (a validação usa ts-node) e do AWS CLI com o perfil de operador
 scripts/rules/publish-rules.sh config/rules.json --strategy immediate
 ```
-O script valida o documento, cria a versão hospedada com `Version-Label` = carimbo UTC (`YYYYMMDDHHMMSS`, a **revisão**) e inicia o deployment.
+O script valida o documento, cria a versão hospedada com `Version-Label` = `r` + carimbo UTC (`rYYYYMMDDHHMMSS`, a **revisão**; o AppConfig não aceita rótulo só com dígitos) e inicia o deployment.
 Os IDs vêm de `terraform output` (ou das variáveis `APPCONFIG_*`). Use `--dry-run` para só ver os comandos.
 
 ## 5. Subir o serviço
@@ -69,7 +69,7 @@ Publicar e implantar exige o perfil de operador de fraude; as tarefas só têm p
 
 ### Reverter
 ```sh
-scripts/rules/publish-rules.sh --rollback 20261010120000   # novo deployment da revisão anterior (padrão: immediate)
+scripts/rules/publish-rules.sh --rollback r20261010120000   # novo deployment da revisão anterior (padrão: immediate)
 scripts/rules/publish-rules.sh --stop                      # para um rollout em andamento e volta à configuração anterior
 ```
 - **Rollback automático:** o ambiente monitora o alarme composto `fraud-detector-rules-rollback` (DLQs não vazias, idade da fila

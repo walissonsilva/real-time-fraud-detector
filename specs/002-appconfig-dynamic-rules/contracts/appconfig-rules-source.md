@@ -19,7 +19,7 @@ publish-rules.sh <arquivo.json> [--strategy gradual|immediate]
 ```
 
 1. **Pré-valida** o arquivo com `validateRulesDocument` (contrato, expressão, `ruleId` único, sem `WINDOWED`, ao menos uma regra `ACTIVE`). Documento inválido encerra o script com erro, sem criar versão.
-2. Cria a versão hospedada com `--version-label <YYYYMMDDHHMMSS UTC>` (rótulo numérico monotônico; é a **revisão**). O validador estrutural do perfil (draft 4) barra aqui, ou no `start-deployment`, quem publicar pelo console fora do script.
+2. Cria a versão hospedada com `--version-label r<YYYYMMDDHHMMSS UTC>` (rótulo numérico monotônico; é a **revisão**). O validador estrutural do perfil (draft 4) barra aqui, ou no `start-deployment`, quem publicar pelo console fora do script.
 3. Inicia o deployment com a estratégia escolhida (padrão `gradual`).
 4. Imprime o rótulo (revisão), o número do deployment e o comando de acompanhamento.
 
