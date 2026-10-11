@@ -23,7 +23,8 @@ export interface AppConfigRuleRepositoryDeps {
 const JITTER = 0.1;
 const BACKOFF_START_MS = 1000;
 const BACKOFF_CAP_MS = 8000;
-const REVISION_LABEL = /^[1-9]\d*$/;
+/** O AppConfig exige ao menos um caractere não numérico no Version-Label; o script publica `r<carimbo>`. */
+const REVISION_LABEL = /^r?([1-9]\d*)$/;
 
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
@@ -164,9 +165,9 @@ export class AppConfigRuleRepository implements RuleRepository, OnModuleDestroy 
 
   /** Valida o conteúdo e, se válido, troca o snapshot por inteiro. Lança `RulesConfigError` se não puder ativar. */
   private activate(result: Extract<ConfigPollResult, { kind: 'changed' }>): void {
-    const label = result.versionLabel ?? '';
-    const revision = Number(label);
-    if (!REVISION_LABEL.test(label) || !Number.isSafeInteger(revision)) {
+    const match = REVISION_LABEL.exec(result.versionLabel ?? '');
+    const revision = Number(match?.[1]);
+    if (!match || !Number.isSafeInteger(revision)) {
       throw new RulesConfigError('conteúdo sem rótulo de versão numérico (Version-Label)');
     }
     const { rules } = validateRulesDocument(result.content, { engine: this.engine });

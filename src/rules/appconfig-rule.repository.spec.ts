@@ -66,6 +66,13 @@ describe('AppConfigRuleRepository', () => {
   afterEach(() => jest.useRealTimers());
 
   describe('US1: aplicar nova revisão sem reinício', () => {
+    it('aceita o rótulo com prefixo r (formato do publish-rules.sh)', async () => {
+      const { repo } = setup(new FakeClient().push(changed(rulesJson, 'r20261010120000')));
+      await repo.start();
+      expect(await repo.currentRevision()).toBe(20261010120000);
+      repo.onModuleDestroy();
+    });
+
     it('start() ativa a primeira configuração e a revisão vem do rótulo de versão', async () => {
       const client = new FakeClient().push(changed(rulesJson, '20261010120000'));
       const { repo } = setup(client);
@@ -168,7 +175,7 @@ describe('AppConfigRuleRepository', () => {
     });
 
     it('conteúdo sem rótulo de versão numérico é rejeitado (revisão não rastreável)', async () => {
-      for (const label of [undefined, '', 'abc', '-3', '1.5']) {
+      for (const label of [undefined, '', 'abc', '-3', '1.5', 'r', 'r0', 'rr5']) {
         const client = new FakeClient().push(changed(doc(1000), '100'), changed(doc(2000), label));
         const { repo, metrics } = setup(client);
         await repo.start();

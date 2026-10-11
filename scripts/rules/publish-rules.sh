@@ -6,7 +6,7 @@
 #   publish-rules.sh --rollback <revisão>  [--strategy gradual|immediate] [--dry-run]   volta a uma revisão anterior
 #   publish-rules.sh --stop [--dry-run]                                          para o rollout em andamento
 #
-# - A revisão é um rótulo numérico monotônico (UTC, YYYYMMDDHHMMSS) gravado como Version-Label da versão hospedada;
+# - A revisão é um rótulo monotônico `r` + carimbo UTC (rYYYYMMDDHHMMSS; o AppConfig exige um caractere não numérico) gravado como Version-Label da versão hospedada;
 #   é o identificador que as instâncias expõem nas métricas (research D-03).
 # - Antes de publicar, o documento é validado com a mesma função das instâncias (contrato, expressão, ruleId único,
 #   sem WINDOWED, ao menos uma regra ACTIVE). Documento inválido encerra o script sem criar versão.
@@ -51,7 +51,7 @@ if [ "$MODE" = publish ]; then
   FILE="$(cd "$(dirname "$FILE")" && pwd)/$(basename "$FILE")"
   STRATEGY="${STRATEGY:-gradual}"
 elif [ "$MODE" = rollback ]; then
-  [[ "$ROLLBACK_REVISION" =~ ^[1-9][0-9]*$ ]] || die "revisão inválida: '$ROLLBACK_REVISION' (esperado o rótulo numérico)"
+  [[ "$ROLLBACK_REVISION" =~ ^r[1-9][0-9]*$ ]] || die "revisão inválida: '$ROLLBACK_REVISION' (esperado o rótulo, ex.: r20261010120000)"
   STRATEGY="${STRATEGY:-immediate}"
 fi
 
@@ -105,7 +105,7 @@ case "$MODE" in
     (cd "$REPO_ROOT" && npx --no-install ts-node scripts/rules/validate-rules.ts "$FILE") \
       || die "documento inválido; nada foi publicado"
 
-    LABEL="$(date -u +%Y%m%d%H%M%S)"
+    LABEL="r$(date -u +%Y%m%d%H%M%S)"
     log "criando a versão hospedada, revisão (Version-Label) $LABEL"
     if [ "$DRY_RUN" = 1 ]; then
       run_aws appconfig create-hosted-configuration-version --application-id "$APP_ID" \
