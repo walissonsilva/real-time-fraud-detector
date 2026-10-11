@@ -43,6 +43,23 @@ Esperado: as tarefas sobem e `/metrics` mostra `rules_active_revision` igual ao 
 | 9 | Defasagem e divergência (H5, SC-006) | Pausar o poll de uma tarefa (ou usar revisão diferente em ambiente de teste) por mais de 20 min | Alarme `rules-revision-diverged` dispara |
 | 10 | Fonte por arquivo e padrão de produção (H6) | Subir com `NODE_ENV=production` sem `RULES_SOURCE`; depois com `RULES_SOURCE=file` | O primeiro usa AppConfig e não lê o arquivo; o segundo lê o arquivo |
 
+### Resultados na AWS
+
+Execução de 2026-10-10/11 no perfil `lean`; detalhes e métricas em [`docs/registro-testes-aws.md`](../../docs/registro-testes-aws.md).
+
+| # | Resultado | # | Resultado |
+|---|-----------|---|-----------|
+| 1 | ✅ revisão aplicada em ≤ 25 s | 6a | ✅ teste unitário |
+| 2 | ✅ teste de integração | 6b | ⏭️ pendente (bloqueado; coberto por 4 e 6a) |
+| 3 | ✅ ~1 min | 7 | ⏭️ pendente (altera IAM de produção; coberto por `rules-source-outage`) |
+| 4 | ✅ rollback ~1 s após o alarme composto | 8 | ✅ falha em 45 s, `NOT_FOUND`, 8 tentativas |
+| 5a | ✅ | 9 | ⏭️ pendente (20 min de espera) |
+| 5b | ✅ recusado no `start-deployment` | 10 | ✅ teste unitário |
+
+Observação do 5b: o validador do perfil atua no início do deployment; a versão hospedada inválida chega a ser criada, mas não é implantada.
+
 ## 4. Carga
 
 Repetir o teste k6 existente (`npm run load:k6` / `infra/terraform/scripts/loadtest.sh`) com uma publicação de regras no meio da execução. Esperado: latência de alerta ≤ 500 ms (p99) sem degradação perceptível na janela da troca (constituição V).
+
+**Resultado (2026-10-11, lean, 1000 TPS, troca aos ~200 s):** p95 105 ms e p99 242 ms de serviço, 3.703/3.703 alertas, sem duplicidade nem DLQ; instâncias aplicaram a revisão em 2–6 s. Ver o registro.
