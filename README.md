@@ -49,7 +49,7 @@ transactions (SQS) ─▶ valida (TransactionEvent v1) ─┬─ inválido ─�
 - **Um alerta por transação**: `dedupeKey = sha256("fraud-alert:v1:" + transactionId)`; reentrega e concorrência não geram segundo alerta.
 - **Falha transitória** (banco, avaliação): até 3 retentativas com espera crescente na própria fila; depois `DlqMessage` `MAX_RETRIES_EXCEEDED`.
 - **Entrega por canal**: `deliveryId = sha256("alert-delivery:v1:" + alertId + ":" + canal)`, estável entre retentativas; timeout, retry com backoff e jitter, e DLQ por canal (`CHANNEL_DELIVERY`). A mensagem ao cliente só leva tipo, valor formatado, data e a orientação de confirmar/contestar.
-- **Observabilidade**: logs JSON com redação de PII, `traceId` do evento ao alerta e às entregas, e `GET /metrics` (inclui `outbox_pending` e `outbox_oldest_pending_age_ms`).
+- **Observabilidade**: logs JSON com redação de PII, `traceId` do evento ao alerta e às entregas, e `GET /metrics` (inclui `outbox_pending` e `outbox_oldest_pending_age_ms`). Na AWS, a latência por alerta e os contadores do pipeline vão ao CloudWatch e alimentam o dashboard `<nome>-operacao` ([infra/terraform/README.md](infra/terraform/README.md#dashboard-operacional-cloudwatch)).
 
 ### Regras de exemplo (`config/rules.json`)
 

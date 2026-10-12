@@ -378,3 +378,51 @@ resource "aws_cloudwatch_metric_alarm" "rules_alert_rate_anomaly" {
   }
   depends_on = [aws_cloudwatch_log_metric_filter.rules]
 }
+
+# ---------- Pipeline (dashboard): vazão por resultado, entregas, DLQ e outbox ----------
+# A linha `pipeline.metrics` (MetricsLogPublisher) sai a cada 60 s com deltas e gauges; `alert.published` (uma por alerta)
+# carrega `latencyMs` (ingestedAt → aceite do SNS), de onde o CloudWatch calcula p50/p95/p99 do SLO de 500 ms.
+locals {
+  pipeline_metric_namespace = "FraudDetector/Pipeline"
+  pipeline_metrics = {
+    EventsAlerted            = "$.EventsAlerted"
+    EventsNoAlert            = "$.EventsNoAlert"
+    EventsDuplicate          = "$.EventsDuplicate"
+    EventsTransientFailure   = "$.EventsTransientFailure"
+    EventsRejected           = "$.EventsRejected"
+    DeliveriesDelivered      = "$.DeliveriesDelivered"
+    DeliveriesDeadLettered   = "$.DeliveriesDeadLettered"
+    DeliveriesInfraFailure   = "$.DeliveriesInfraFailure"
+    DlqMessages              = "$.DlqMessages"
+    OutboxPublishFailures    = "$.OutboxPublishFailures"
+    OutboxRepublished        = "$.OutboxRepublished"
+    OutboxPending            = "$.OutboxPending"
+    OutboxOldestPendingAgeMs = "$.OutboxOldestPendingAgeMs"
+  }
+}
+
+resource "aws_cloudwatch_log_metric_filter" "pipeline" {
+  for_each       = local.pipeline_metrics
+  name           = "${var.name}-${each.key}"
+  log_group_name = aws_cloudwatch_log_group.app.name
+  pattern        = "{ $.message = \"pipeline.metrics\" && ${each.value} = * }"
+
+  metric_transformation {
+    name      = each.key
+    namespace = local.pipeline_metric_namespace
+    value     = each.value
+  }
+}
+
+resource "aws_cloudwatch_log_metric_filter" "alert_latency" {
+  name           = "${var.name}-AlertLatencyMs"
+  log_group_name = aws_cloudwatch_log_group.app.name
+  pattern        = "{ $.message = \"alert.published\" && $.latencyMs = * }"
+
+  metric_transformation {
+    name      = "AlertLatencyMs"
+    namespace = local.pipeline_metric_namespace
+    value     = "$.latencyMs"
+    unit      = "Milliseconds"
+  }
+}

@@ -84,6 +84,15 @@ scripts/rules/publish-rules.sh --stop                      # para um rollout em 
 - Entre testes: `aws ecs update-service ... --desired-count 0` e `aws rds stop-db-instance --db-instance-identifier fraud-detector` (reinicia sozinho após 7 dias).
 - `lean` pode ser destruído (`terraform destroy -var-file=lean.tfvars`); `full` tem deletion protection no RDS.
 
+## Dashboard operacional (CloudWatch)
+`dashboard.tf` cria o dashboard `<nome>-operacao` (URL na saída `dashboard_url`). Linhas: saúde (p99 do alerta, TPS de entrada, idade da fila, DLQs, tasks, alarmes), vazão × latência × backlog, eventos por resultado e taxa de alertas, outbox/entregas/DLQs, capacidade (ECS, RDS, Redis) e regras dinâmicas.
+
+- **Métricas da aplicação:** a linha `pipeline.metrics` (a cada 60 s, deltas e gauges) e a linha `alert.published` (uma por alerta, com `latencyMs` do `ingestedAt` ao aceite do SNS) viram métricas em `FraudDetector/Pipeline` por *metric filters* em `monitoring.tf`. A emissão depende de `RULES_METRICS_LOG=true` (já definido no ECS).
+- **Teste de carga:** o `loadtest.sh` grava em `FraudDetector/LoadTest` a fase (1 aquecimento, 2 steady, 3 drain) e o TPS planejado, um ponto por minuto, para plotar planejado × entrada real.
+- **Verificação automática:** `aws-up` imprime a URL e espera a primeira linha `pipeline.metrics`; `loadtest.sh` confere a emissão antes de começar (aborta com `--yes`, a menos que use `--allow-no-metrics`) e, ao final, imprime e grava no `-avaliacao.md` a URL do dashboard recortada na janela do teste.
+- **Container Insights** fica ligado também no `lean` (nº de tasks e alarme de tasks abaixo do desejado).
+- SQS/RDS chegam com 1 a 5 min de atraso; os números finais do teste vêm do relatório do k6.
+
 ## Teste de carga
 O teste de carga k6 na AWS roda com `scripts/loadtest.sh <lean|full>` (skill `/aws-loadtest`): publica a imagem do k6 no ECR (`load/k6/Dockerfile`), aplica `loadtest.tfvars` (serviço On-Demand + `enable_loadtest`), roda o smoke e a execução principal em task Fargate na VPC, grava resumo/HTML em `load/k6/results/`, avalia os critérios e reverte o override. Ver `docs/teste-de-carga-aws-1000tps.md`.
 

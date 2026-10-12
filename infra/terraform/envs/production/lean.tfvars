@@ -28,7 +28,7 @@ service_max_count     = 6
 fargate_base          = 0
 fargate_weight        = 0
 fargate_spot_weight   = 1
-container_insights    = false
+container_insights    = true
 
 monthly_budget_usd = 150
 # alert_email = "voce@example.com"  # defina em um arquivo *.auto.tfvars local (gitignored) ou via -var
