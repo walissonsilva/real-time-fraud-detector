@@ -1,6 +1,6 @@
 # Real-Time Fraud Detector
 
-Motor de detecção de transações suspeitas em tempo real (CE 1). Decisões e requisitos em [docs/](docs/README.md).
+Motor de detecção de transações suspeitas em tempo real (CE 1). Decisões e requisitos em [docs/](docs/README.md). Modelo de dados do Postgres (diagrama ER): [docs/modelo-de-dados.md](docs/modelo-de-dados.md).
 
 ## Estrutura (módulos NestJS)
 

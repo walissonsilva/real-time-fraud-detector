@@ -175,12 +175,12 @@ Isso é apertado. Pontos de decisão: se R2 não estiver verde ao fim de sex 09,
 
 ### US-17 · Regras como dados versionados (CRUD)
 **Como** administrador de regras, **quero** criar, listar, consultar, editar e arquivar regras, **para** evoluir a detecção sem código.
-- Toda alteração gera nova versão imutável (`rule_versions`); só a versão publicada é avaliada. Reusa o schema e a migração existentes.
+- Toda alteração gera nova versão imutável (versão hospedada do AWS AppConfig, [ADR-03](adr/ADR-03-motor-de-regras.md)); só a versão implantada é avaliada.
 - **Origem:** RF-20, RF-21 · **Prio:** M · **Tam:** G
 
 ### US-18 · Atualização em runtime com snapshot atômico
 **Como** operador, **quero** que as instâncias recarreguem regras em até 30 s e mantenham o último snapshot válido, **para** operar mesmo com o repositório de regras fora.
-- Contador `rules_revision`; troca atômica do conjunto compilado; cada decisão registra a versão usada.
+- Revisão ativa vinda do `Version-Label` do AppConfig; troca atômica do conjunto compilado; cada decisão registra a versão usada.
 - Bootstrap sem snapshot não processa silenciosamente com conjunto vazio.
 - Cenários 5 e 6 automatizados.
 - **Origem:** RF-23, RF-40, RNF-06 · **Prio:** M · **Tam:** G · **Sinal:** consistência de configuração em sistema distribuído.

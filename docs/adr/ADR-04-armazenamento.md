@@ -1,12 +1,12 @@
-# ADR-04 — Armazenamento de alertas, regras e auditoria
+# ADR-04 — Armazenamento de alertas, entregas e auditoria
 
 > Status: **proposto** · Data: 07/10/2026 · Premissas: P-04, P-20, P-21 · Requisitos: RF-21, RF-22, RF-30 a RF-32, RF-36, RF-43, RNF-12, RNF-15, RNF-27, RNF-28
 
-> **Nota (10/10/2026):** a fonte das regras passou a ser o AWS AppConfig ([ADR-03](ADR-03-motor-de-regras.md)). As tabelas `rule_versions` e `rules_revision` abaixo **não são implementadas**; a versão e o histórico das regras ficam no AppConfig (versões hospedadas e deployments, com auditoria no CloudTrail). O restante deste ADR (alertas, outbox, entregas) segue valendo.
+> **Modelo de dados:** diagrama entidade-relacionamento em [modelo-de-dados.md](../modelo-de-dados.md). As regras de detecção não ficam no banco: vêm do AWS AppConfig em produção e de um arquivo local em desenvolvimento ([ADR-03](ADR-03-motor-de-regras.md)).
 
 ## Contexto
 
-Só os alertas (8 a 40 por segundo, até ~125 em pico, P-16) e os dados de gestão chegam ao banco. Cerca de 99,5% dos eventos não geram alerta e nunca o tocam. O banco precisa garantir unicidade do alerta, atomicidade entre o registro e a publicação, regras versionadas e uma trilha de auditoria.
+Só os alertas (8 a 40 por segundo, até ~125 em pico, P-16) e seus dados de entrega e auditoria chegam ao banco. Cerca de 99,5% dos eventos não geram alerta e nunca o tocam. O banco precisa garantir unicidade do alerta, atomicidade entre o registro e a publicação e uma trilha de auditoria.
 
 ## Decisão
 
@@ -17,9 +17,7 @@ Só os alertas (8 a 40 por segundo, até ~125 em pico, P-16) e os dados de gest�
 | `alerts` | `alert_id` (PK), `dedupe_key` **UNIQUE**, `transaction_id`, `customer_id`, `account_id`, `severity`, `score`, `rules` (jsonb), `summary` (jsonb, mascarado), `degraded`, `late`, `status`, `ingested_at`, `detected_at`, `published_at` |
 | `outbox` | `alert_id`, `payload`, `created_at`, `published_at` (nulo = pendente); índice parcial `WHERE published_at IS NULL` |
 | `deliveries` | `delivery_id` (PK), `alert_id`, `channel`, `status`, `attempts`, `last_error`, `updated_at` |
-| `rule_versions` | `(rule_id, version)` (PK), `status`, `definition` (jsonb), `author`, `approver`, `created_at`, `activated_at` |
-| `rules_revision` | Contador de revisão (uma linha) incrementado ao ativar, desativar ou reverter, usado no *polling* |
-| `audit_log` | Somente inserção (`REVOKE UPDATE, DELETE`): `at`, `actor`, `action`, `entity`, `entity_id`, `before`, `after`. Gravada **na mesma transação** da mudança |
+| `audit_log` | Somente inserção (`REVOKE UPDATE, DELETE`): `at`, `actor`, `action`, `entity`, `entity_id`, `before`, `after` |
 | `routing_policy` | Política de canais e estado de cada canal (*kill switch*) |
 
 **Caminho do alerta:**
@@ -33,7 +31,7 @@ Só os alertas (8 a 40 por segundo, até ~125 em pico, P-16) e os dados de gest�
 
 | Alternativa | Por que não agora |
 |-------------|-------------------|
-| DynamoDB (`PutItem` condicional `PENDING`, publicação, `UpdateItem`, sweeper por GSI esparso) | Defensável e 100% AWS, mas a modelagem relacional de regras, versões, aprovação e auditoria e as consultas da API ficam mais custosas, e o ambiente local é menos simples. O GSI é eventualmente consistente |
+| DynamoDB (`PutItem` condicional `PENDING`, publicação, `UpdateItem`, sweeper por GSI esparso) | Defensável e 100% AWS, mas a modelagem relacional da auditoria e as consultas da API ficam mais custosas, e o ambiente local é menos simples. O GSI é eventualmente consistente |
 | DynamoDB Streams como *outbox* | Põe dois saltos (stream e Lambda) no caminho crítico do alerta |
 
 ## Consequências
