@@ -58,7 +58,11 @@ export class OutboxEntryPublisherService {
     // Instante do aceite pelo SNS (inclui timeout e retentativas do publish): base do SLO medido e do `published_at` no banco.
     const acceptedAt = this.now();
     metrics.increment('outbox_publish_total', { result: 'success' });
-    metrics.observe('alert_latency_ms', Math.max(0, acceptedAt.getTime() - new Date(alert.ingestedAt).getTime()));
+    const latencyMs = Math.max(0, acceptedAt.getTime() - new Date(alert.ingestedAt).getTime());
+    metrics.observe('alert_latency_ms', latencyMs);
+    // Uma linha por alerta (taxa de alertas, não de eventos): o filtro de métrica do CloudWatch (`AlertLatencyMs`) calcula
+    // p50/p95/p99 do SLO a partir dela. Sem PII: só ids opacos, severidade e a latência.
+    logger.info('alert.published', { alertId: alert.alertId, traceId: alert.traceId, severity: alert.severity, latencyMs });
     try {
       await alerts.markPublished(alert.alertId, acceptedAt);
     } catch (err) {

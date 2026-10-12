@@ -7,7 +7,9 @@ function setup(enabled = true) {
   const lines: Line[] = [];
   const metrics = new InMemoryMetrics();
   const publisher = new MetricsLogPublisher(metrics, { enabled, intervalMs: 60_000 }, (l) => lines.push(JSON.parse(l) as Line));
-  return { lines, metrics, publisher };
+  const rules = () => lines.filter((l) => l.message === 'rules.metrics');
+  const pipeline = () => lines.filter((l) => l.message === 'pipeline.metrics');
+  return { lines, rules, pipeline, metrics, publisher };
 }
 
 describe('MetricsLogPublisher', () => {
@@ -15,7 +17,7 @@ describe('MetricsLogPublisher', () => {
   afterEach(() => jest.useRealTimers());
 
   it('a cada intervalo escreve uma linha rules.metrics com gauges e deltas, sem dimensões', () => {
-    const { lines, metrics, publisher } = setup();
+    const { lines, rules, metrics, publisher } = setup();
     metrics.gauge('rules_active_revision', 20261010120000);
     metrics.gauge('rules_last_refresh_age_seconds', 12);
     metrics.increment('rules_refresh_failures_total', undefined, 2);
@@ -26,8 +28,8 @@ describe('MetricsLogPublisher', () => {
 
     jest.advanceTimersByTime(60_000);
 
-    expect(lines).toHaveLength(1);
-    expect(lines[0]).toMatchObject({
+    expect(rules()).toHaveLength(1);
+    expect(rules()[0]).toMatchObject({
       level: 'info',
       message: 'rules.metrics',
       RulesActiveRevision: 20261010120000,
@@ -35,12 +37,12 @@ describe('MetricsLogPublisher', () => {
       RulesRefreshFailures: 2,
       AlertsCreated: 8, // soma das severidades
     });
-    expect(typeof lines[0].time).toBe('string');
+    expect(typeof rules()[0].time).toBe('string');
     publisher.onModuleDestroy();
   });
 
   it('contadores saem como delta desde a emissão anterior', () => {
-    const { lines, metrics, publisher } = setup();
+    const { rules, metrics, publisher } = setup();
     publisher.onModuleInit();
     metrics.increment('alerts_total', { severity: 'HIGH' }, 10);
     metrics.increment('rules_refresh_failures_total', undefined, 1);
@@ -48,18 +50,19 @@ describe('MetricsLogPublisher', () => {
     metrics.increment('alerts_total', { severity: 'HIGH' }, 4);
     jest.advanceTimersByTime(60_000);
     jest.advanceTimersByTime(60_000);
-    expect(lines.map((l) => l.AlertsCreated)).toEqual([10, 4, 0]);
-    expect(lines.map((l) => l.RulesRefreshFailures)).toEqual([1, 0, 0]);
+    expect(rules().map((l) => l.AlertsCreated)).toEqual([10, 4, 0]);
+    expect(rules().map((l) => l.RulesRefreshFailures)).toEqual([1, 0, 0]);
     publisher.onModuleDestroy();
   });
 
   it('omite os gauges ainda sem valor (ex.: antes da primeira revisão)', () => {
-    const { lines, publisher } = setup();
+    const { rules, pipeline, publisher } = setup();
     publisher.onModuleInit();
     jest.advanceTimersByTime(60_000);
-    expect('RulesActiveRevision' in lines[0]).toBe(false);
-    expect('RulesLastRefreshAgeSeconds' in lines[0]).toBe(false);
-    expect(lines[0].RulesRefreshFailures).toBe(0);
+    expect('RulesActiveRevision' in rules()[0]).toBe(false);
+    expect('RulesLastRefreshAgeSeconds' in rules()[0]).toBe(false);
+    expect(rules()[0].RulesRefreshFailures).toBe(0);
+    expect('OutboxPending' in pipeline()[0]).toBe(false);
     publisher.onModuleDestroy();
   });
 
@@ -84,7 +87,41 @@ describe('MetricsLogPublisher', () => {
     metrics.increment('alerts_total', { severity: 'HIGH', accountId: 'acc-1' }, 1);
     publisher.onModuleInit();
     jest.advanceTimersByTime(60_000);
-    expect(JSON.stringify(lines[0])).not.toMatch(/acc-1|accountId|severity/);
+    expect(JSON.stringify(lines)).not.toMatch(/acc-1|accountId|severity/);
+    publisher.onModuleDestroy();
+  });
+
+  it('pipeline.metrics separa eventos por resultado, entregas e DLQ (deltas) e repassa os gauges do outbox', () => {
+    const { pipeline, metrics, publisher } = setup();
+    metrics.increment('events_processed_total', { result: 'alert_created' }, 3);
+    metrics.increment('events_processed_total', { result: 'no_alert' }, 100);
+    metrics.increment('events_processed_total', { result: 'reversal_skipped' }, 7);
+    metrics.increment('events_processed_total', { result: 'duplicate' }, 2);
+    metrics.increment('events_rejected_total', { reason: 'SCHEMA' }, 1);
+    metrics.increment('deliveries_total', { channel: 'antifraud-queue', status: 'delivered' }, 3);
+    metrics.increment('deliveries_total', { channel: 'customer-push', status: 'delivered' }, 2);
+    metrics.increment('deliveries_total', { channel: 'customer-push', status: 'dead_lettered' }, 1);
+    metrics.increment('dlq_total', { stage: 'CHANNEL_DELIVERY' }, 1);
+    metrics.gauge('outbox_pending', 4);
+    metrics.gauge('outbox_oldest_pending_age_ms', 1500);
+    publisher.onModuleInit();
+
+    jest.advanceTimersByTime(60_000);
+    metrics.increment('events_processed_total', { result: 'no_alert' }, 5);
+    jest.advanceTimersByTime(60_000);
+
+    expect(pipeline()[0]).toMatchObject({
+      EventsAlerted: 3,
+      EventsNoAlert: 107,
+      EventsDuplicate: 2,
+      EventsRejected: 1,
+      DeliveriesDelivered: 5,
+      DeliveriesDeadLettered: 1,
+      DlqMessages: 1,
+      OutboxPending: 4,
+      OutboxOldestPendingAgeMs: 1500,
+    });
+    expect(pipeline()[1]).toMatchObject({ EventsNoAlert: 5, EventsAlerted: 0, DeliveriesDelivered: 0 });
     publisher.onModuleDestroy();
   });
 });

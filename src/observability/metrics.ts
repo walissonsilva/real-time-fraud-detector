@@ -29,10 +29,17 @@ export class InMemoryMetrics {
     this.observations.set(key, { count: current.count + 1, sum: current.sum + value, max: Math.max(current.max, value) });
   }
 
-  /** Soma de um contador em todas as combinações de rótulos (ex.: `alerts_total` de todas as severidades). */
-  counterTotal(name: string): number {
+  /**
+   * Soma de um contador em todas as combinações de rótulos (ex.: `alerts_total` de todas as severidades).
+   * Com `where`, soma só as combinações que contêm todos os rótulos informados (ex.: `{ result: 'duplicate' }`).
+   */
+  counterTotal(name: string, where?: MetricLabels): number {
+    const wanted = Object.entries(where ?? {}).map(([k, v]) => `${k}="${v}"`);
     let total = 0;
-    for (const [key, value] of this.counters) if (key === name || key.startsWith(`${name}{`)) total += value;
+    for (const [key, value] of this.counters) {
+      if (key !== name && !key.startsWith(`${name}{`)) continue;
+      if (wanted.every((w) => key.includes(`{${w}`) || key.includes(`,${w}`))) total += value;
+    }
     return total;
   }
 
