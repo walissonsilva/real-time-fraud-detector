@@ -6,18 +6,20 @@
 #
 # Uso: loadtest.sh <lean|full> [--rate 1000] [--duration 300] [--warmup 90] [--drain 60] [--alert-rate 0.01]
 #                  [--runner ec2|fargate] [--instance-type c6i.xlarge] [--on-demand]
-#                  [--cpu 2048 --memory 4096] [--skip-smoke] [--keep] [--pause] [--purge] [--yes]
+#                  [--cpu 2048 --memory 4096] [--skip-smoke] [--keep] [--pause] [--purge] [--allow-no-metrics] [--yes]
 #   --runner        onde roda o k6: ec2 (padrão; instância Spot via SSM) ou fargate (task; usa --cpu/--memory)
 #   --on-demand     com --runner ec2: instância On-Demand em vez de Spot (fallback sem capacidade Spot)
 #   --keep   não reverte o override On-Demand ao final (para repetir sem reaplicar)
 #   --pause  chama pause.sh ao final (ECS=0, RDS parado)
 #   --purge  esvazia transactions e DLQs se houver resíduos (por padrão aborta)
+#   --allow-no-metrics  segue mesmo que a imagem em execução não emita as métricas do dashboard (pipeline.metrics);
+#                       sem a flag, --yes aborta nesse caso (rode aws-up antes) e o modo interativo pergunta
 # Pré-requisito: ambiente de pé (aws-up/aws-resume). Gera custo.
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
 PROFILE="${1:-}"; shift || true
 RATE=1000; DURATION=300; WARMUP=90; DRAIN=60; ALERT_RATE=0.01; CPU=2048; MEMORY=4096
-SKIP_SMOKE=0; KEEP=0; PAUSE=0; PURGE=0; ASSUME_YES=0
+SKIP_SMOKE=0; KEEP=0; PAUSE=0; PURGE=0; ASSUME_YES=0; ALLOW_NO_METRICS=0
 RUNNER=ec2; USE_SPOT=true; INSTANCE_TYPE=""
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -35,6 +37,7 @@ while [ $# -gt 0 ]; do
     --keep) KEEP=1 ;;
     --pause) PAUSE=1 ;;
     --purge) PURGE=1 ;;
+    --allow-no-metrics) ALLOW_NO_METRICS=1 ;;
     --yes) ASSUME_YES=1 ;;
     *) die "argumento desconhecido: $1" ;;
   esac; shift
@@ -58,6 +61,19 @@ tf_init
 [ "$(db_status)" = available ] || die "RDS não está disponível; rode aws-resume ou aws-up antes"
 DESIRED="$(service_desired || true)"
 { [ -n "$DESIRED" ] && [ "$DESIRED" != 0 ]; } || die "serviço ECS parado (desired=0); rode aws-resume ou aws-up antes"
+
+# O dashboard (latência p99 do alerta, vazão por resultado, outbox) depende de a imagem em execução emitir
+# `pipeline.metrics`. Este script não troca a imagem do app: sem a emissão, a carga rodaria com o dashboard cego.
+if app_emits_pipeline_metrics 5; then
+  log "dashboard: a aplicação emite pipeline.metrics ($(dashboard_url))"
+elif [ "$ALLOW_NO_METRICS" = 1 ]; then
+  log "AVISO: a aplicação não emite pipeline.metrics; o dashboard terá só métricas de infraestrutura (--allow-no-metrics)"
+elif [ "$ASSUME_YES" = 1 ]; then
+  die "a imagem em execução não emite pipeline.metrics (dashboard sem latência e sem contadores). Rode aws-up antes ou use --allow-no-metrics"
+else
+  log "AVISO: nenhuma linha pipeline.metrics nos últimos 5 min em $APP_LOG_GROUP; a imagem em execução provavelmente não tem a emissão (rode aws-up antes)."
+  confirm "Continuar assim mesmo, com o dashboard só com métricas de infraestrutura?"
+fi
 
 # Tag da imagem do app em execução (o apply não pode trocá-la nem zerar o serviço)
 TASKDEF="$(aws ecs describe-services --cluster "$CLUSTER" --services "$SERVICE" --query 'services[0].taskDefinition' --output text)"
@@ -175,6 +191,56 @@ SUB_ARN="$(aws sns subscribe --topic-arn "$TOPIC_ARN" --protocol sqs --notificat
   --attributes RawMessageDelivery=true --return-subscription-arn --query SubscriptionArn --output text)"
 log "sink $SINK_NAME assinado em $TOPIC_NAME"
 
+# Grava no CloudWatch (namespace FraudDetector/LoadTest) a fase da execução (1 aquecimento, 2 steady, 3 drain) e o TPS
+# planejado, um ponto por minuto a partir de agora (o CloudWatch aceita timestamps até 2 h no futuro). O dashboard
+# `<nome>-operacao` plota os dois contra a entrada real. Não bloqueia o teste se falhar.
+mark_run_window() { # <rate> <duration> <warmup> <drain>
+  local rate="$1" duration="$2" warmup="$3" drain="$4" data
+  if ! data="$(python3 - "$rate" "$duration" "$warmup" "$drain" <<'PY'
+import json, sys
+from datetime import datetime, timedelta, timezone
+rate, duration, warmup, drain = (float(x) for x in sys.argv[1:5])
+total = warmup + duration + drain
+if total > 7000:
+    sys.exit("janela maior que 2 h: marcadores omitidos")
+start = datetime.now(timezone.utc).replace(second=0, microsecond=0)
+start_exact = datetime.now(timezone.utc)
+start_rate = min(rate, 200)
+out = []
+t = 0.0
+while t <= total:
+    if t < warmup:
+        phase, planned = 1, start_rate + (rate - start_rate) * (t / warmup)
+    elif t < warmup + duration:
+        phase, planned = 2, rate
+    else:
+        phase, planned = 3, 0
+    ts = (start_exact + timedelta(seconds=t)).replace(second=0, microsecond=0).strftime("%Y-%m-%dT%H:%M:%SZ")
+    out.append({"MetricName": "Phase", "Timestamp": ts, "Value": phase, "Unit": "None"})
+    out.append({"MetricName": "PlannedTps", "Timestamp": ts, "Value": round(planned, 1), "Unit": "Count/Second"})
+    t += 60
+# Mantém um ponto por minuto (sem repetir timestamps).
+seen, uniq = set(), []
+for m in out:
+    k = (m["MetricName"], m["Timestamp"])
+    if k not in seen:
+        seen.add(k); uniq.append(m)
+print(json.dumps(uniq))
+PY
+)"; then
+    log "AVISO: marcadores do dashboard omitidos (janela maior que 2 h)"; return 0
+  fi
+  python3 - "$data" <<'PY' | while IFS= read -r chunk; do
+import json, sys
+items = json.loads(sys.argv[1])
+for i in range(0, len(items), 100):
+    print(json.dumps(items[i:i + 100]))
+PY
+    aws cloudwatch put-metric-data --namespace FraudDetector/LoadTest --metric-data "$chunk" \
+      || log "AVISO: não foi possível gravar os marcadores do teste no CloudWatch"
+  done
+}
+
 # --- 5) execução de uma task k6 --------------------------------------------------------------------
 # run_k6 <rótulo> <rate> <duration> <warmup> <drain> <alert-rate>
 # Define RUN_BASE (prefixo dos arquivos), RUN_START/RUN_END (ISO UTC) e RUN_EXIT (exit code do k6).
@@ -201,6 +267,7 @@ PY
 )"
   local stream
   RUN_START="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  mark_run_window "$rate" "$duration" "$warmup" "$drain"
   if [ "$RUNNER" = ec2 ]; then
     log "[$label] iniciando k6 em $INSTANCE_ID (run $run_id): ${rate} TPS, aquecimento ${warmup}s, steady ${duration}s, drain ${drain}s"
     stream="ec2/$run_id"
@@ -302,13 +369,17 @@ if [ "$PASSED" = 1 ]; then
     GEN_ARGS=(--generator-instance "$INSTANCE_ID")
     GEN_DESC="EC2 $(aws ec2 describe-instances --instance-ids "$INSTANCE_ID" --query 'Reservations[0].Instances[0].[InstanceType,InstanceLifecycle]' --output text | tr '\t' ' ' | sed 's/None/on-demand/')"
   fi
+  DASH_START="$(date -u -d "$RUN_START - 5 minutes" +%Y-%m-%dT%H:%M:%S.000Z)"
+  DASH_END="$(date -u -d "$RUN_END + 8 minutes" +%Y-%m-%dT%H:%M:%S.000Z)"
+  DASH_URL="$(dashboard_url "$DASH_START" "$DASH_END")"
   python3 "$SCRIPTS_DIR/loadtest_report.py" --summary "$RUN_BASE.json" --start "$RUN_START" --end "$RUN_END" \
     --rate "$RATE" --duration "$DURATION" --warmup "$WARMUP" --cluster "$CLUSTER" --service "$SERVICE" --db "$DB_ID" \
     --topic "$TOPIC_NAME" --desired "$DESIRED" "${DLQ_ARGS[@]}" \
     "${GEN_ARGS[@]}" \
-    --meta "Perfil: $PROFILE | app: $APP_TAG | k6: $K6_TAG ($GEN_DESC) | tasks ECS: $RUNNING" \
+    --meta "Perfil: $PROFILE | app: $APP_TAG | k6: $K6_TAG ($GEN_DESC) | tasks ECS: $RUNNING | dashboard: $DASH_URL" \
     --out "$RUN_BASE-avaliacao.md" || PASSED=0
   log "avaliação: $RUN_BASE-avaliacao.md (k6 exit $MAIN_EXIT)"
+  log "dashboard da janela do teste: $DASH_URL"
 fi
 
 [ "$PASSED" = 1 ] && log "APROVADO" || log "REPROVADO ou inválido: veja a avaliação"

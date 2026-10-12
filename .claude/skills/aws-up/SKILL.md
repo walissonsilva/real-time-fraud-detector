@@ -14,5 +14,6 @@ Executa `infra/terraform/scripts/up.sh`. Só quando o usuário invocar; **gera c
 3. Rode `infra/terraform/scripts/up.sh <perfil> --plan-only` e resuma ao usuário: quantos recursos criar/alterar/destruir e qualquer destruição ou recriação (RDS, filas). Para `full`, destaque o custo (RDS Multi-AZ, 8+ tasks, VPC endpoints, GuardDuty).
 4. Peça confirmação explícita. Só então rode `infra/terraform/scripts/up.sh <perfil> --yes`. Nunca passe `--yes` sem essa confirmação.
 5. Ao final, informe tasks rodando, a tag da imagem e o aviso de custo. Se algo falhar (migration, apply), mostre o erro e pare; não tente contornar.
+6. Dashboard: o script imprime a URL do dashboard `fraud-detector-operacao` e espera até ~3 min pela primeira linha `pipeline.metrics` nos logs. Repasse a URL e o resultado: "com dados" ou o aviso de que a aplicação não emite as métricas (nesse caso o dashboard só terá infraestrutura; sugira conferir `RULES_METRICS_LOG` e os logs das tasks). A latência do alerta só aparece depois do primeiro alerta publicado; sem tráfego os painéis de pipeline ficam zerados. O deploy publica a imagem da árvore de trabalho (tag `-dirty` se houver alterações não commitadas), então o código de emissão das métricas vai junto.
 
 Se o RDS estiver parado, o script o religa antes do apply. Não faz commit (AGENTS.md).

@@ -12,6 +12,8 @@ NAME="fraud-detector"
 CLUSTER="$NAME"
 SERVICE="$NAME"
 DB_ID="$NAME"
+APP_LOG_GROUP="/ecs/$NAME"
+DASHBOARD_NAME="$NAME-operacao"
 
 log() { printf '\033[1;34m==>\033[0m %s\n' "$*" >&2; }
 die() { printf '\033[1;31merro:\033[0m %s\n' "$*" >&2; exit 1; }
@@ -98,4 +100,20 @@ tf_apply() {
     fi
     printf '%s\n' "$out" >&2; return "$rc"
   done
+}
+
+# --- dashboard operacional (dashboard.tf) ----------------------------------------------------------
+# A aplicação escreve a linha `pipeline.metrics` a cada 60 s (RULES_METRICS_LOG=true) e `alert.published` por alerta;
+# metric filters as levam ao CloudWatch. Sem a imagem nova, o dashboard fica sem latência e sem contadores do pipeline.
+app_emits_pipeline_metrics() { # [minutos=5]: há linha pipeline.metrics nesse período?
+  local since=$(( ($(date +%s) - ${1:-5} * 60) * 1000 )) id
+  id="$(aws logs filter-log-events --log-group-name "$APP_LOG_GROUP" --start-time "$since" \
+    --filter-pattern '"pipeline.metrics"' --max-items 1 --query 'events[0].eventId' --output text 2>/dev/null || true)"
+  [ -n "$id" ] && [ "$id" != None ]
+}
+
+# dashboard_url [início ISO UTC] [fim ISO UTC]: sem argumentos, a janela padrão do dashboard (3 h).
+dashboard_url() {
+  local base="https://$AWS_REGION.console.aws.amazon.com/cloudwatch/home?region=$AWS_REGION#dashboards/dashboard/$DASHBOARD_NAME"
+  if [ -n "${1:-}" ] && [ -n "${2:-}" ]; then printf '%s?start=%s&end=%s' "$base" "$1" "$2"; else printf '%s' "$base"; fi
 }

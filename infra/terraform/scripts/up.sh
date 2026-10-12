@@ -76,3 +76,16 @@ log "migration ok"
 tf_apply "${TFARGS[@]}" -var start_service=true
 aws ecs wait services-stable --cluster "$CLUSTER" --services "$SERVICE"
 log "pronto: $(aws ecs describe-services --cluster "$CLUSTER" --services "$SERVICE" --query 'services[0].[runningCount,desiredCount]' --output text | tr '\t' '/') tasks rodando"
+
+# 6) dashboard: as tasks novas escrevem pipeline.metrics a cada 60 s; espera até ~3 min pela primeira linha
+log "dashboard: $(dashboard_url)"
+EMITTING=0
+for i in $(seq 1 12); do
+  if app_emits_pipeline_metrics 3; then EMITTING=1; break; fi
+  sleep 15
+done
+if [ "$EMITTING" = 1 ]; then
+  log "dashboard com dados: a aplicação emite pipeline.metrics (a latência do alerta aparece com o primeiro alerta publicado)"
+else
+  log "AVISO: nenhuma linha pipeline.metrics em $APP_LOG_GROUP nos últimos 3 min (confira RULES_METRICS_LOG e os logs das tasks); o dashboard só terá métricas de infraestrutura"
+fi
