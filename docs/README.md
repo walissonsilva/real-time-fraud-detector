@@ -19,6 +19,7 @@ Resposta ao case **CE 1** (take-home de 7 dias, defesa ao vivo). Esta pasta guar
 | 10 | [registro-testes-aws.md](registro-testes-aws.md) | Registro resumido dos testes (carga e simples) executados na AWS, com métricas | vivo |
 | 11 | [modelo-de-dados.md](modelo-de-dados.md) | Diagrama entidade-relacionamento das tabelas do Postgres (alertas, outbox, entregas) | vivo |
 | 12 | [degradacao-de-canais.md](degradacao-de-canais.md) | Circuit breaker, fallback push → SMS, adiamento e kill switch: diagramas e todos os cenários | pronto |
+| 13 | [matriz-de-conformidade.md](matriz-de-conformidade.md) | Cada RF e RNF com situação (atendido, parcial, não atendido, não medido) e evidência | vivo |
 
 ## Escopo em fases (P-08)
 
