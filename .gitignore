@@ -5,3 +5,5 @@ coverage/
 *.tsbuildinfo
 .codex-remote-attachments/
 load/k6/results/
+site/
+__pycache__/

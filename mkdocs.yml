@@ -1,0 +1,89 @@
+site_name: Detector de Fraude em Tempo Real
+site_description: Documentação do motor de detecção de transações suspeitas em tempo real
+site_url: https://walissonsilva.github.io/real-time-fraud-detector/
+repo_url: https://github.com/walissonsilva/real-time-fraud-detector
+repo_name: walissonsilva/real-time-fraud-detector
+edit_uri: edit/main/docs/
+docs_dir: docs
+site_dir: site
+strict: true
+
+hooks:
+  - mkdocs_hooks.py
+
+theme:
+  name: material
+  language: pt-BR
+  features:
+    - navigation.sections
+    - navigation.indexes
+    - navigation.top
+    - navigation.footer
+    - search.highlight
+    - content.code.copy
+    - content.action.edit
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      toggle:
+        icon: material/weather-night
+        name: Modo escuro
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      toggle:
+        icon: material/weather-sunny
+        name: Modo claro
+
+markdown_extensions:
+  - tables
+  - toc:
+      permalink: true
+      slugify: !!python/object/apply:pymdownx.slugs.slugify
+        kwds:
+          case: lower
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.tasklist:
+      custom_checkbox: true
+
+plugins:
+  - search:
+      lang: pt
+
+nav:
+  - Início: README.md
+  - Contexto:
+      - Desafio técnico: desafio-tecnico.md
+      - Premissas: 01-premissas.md
+      - Pesquisa da taxa de alertas: pesquisa-taxa-de-alertas.md
+  - Requisitos:
+      - Funcionais: 02-requisitos-funcionais.md
+      - Não funcionais: 03-requisitos-nao-funcionais.md
+      - Histórias de usuário: 05-historias-de-usuario.md
+      - Matriz de conformidade: matriz-de-conformidade.md
+  - Arquitetura:
+      - Fluxo de processamento: fluxo-processamento.md
+      - Modelo de dados: modelo-de-dados.md
+      - Degradação de canais: degradacao-de-canais.md
+      - ADRs:
+          - adr/README.md
+          - "ADR-01 Mensageria": adr/ADR-01-mensageria.md
+          - "ADR-02 Dedupe e estado de janela": adr/ADR-02-dedupe-e-estado-de-janela.md
+          - "ADR-03 Motor de regras": adr/ADR-03-motor-de-regras.md
+          - "ADR-04 Armazenamento": adr/ADR-04-armazenamento.md
+          - "ADR-05 Degradação": adr/ADR-05-estrategia-de-degradacao.md
+          - "ADR-06 Outbox e CDC": adr/ADR-06-outbox-cdc-debezium.md
+          - "ADR-07 Segurança e LGPD": adr/ADR-07-seguranca-autenticacao-e-lgpd.md
+          - "ADR-08 Observabilidade e SLOs": adr/ADR-08-observabilidade-e-slos.md
+      - Contratos: contratos/README.md
+  - Testes e operação:
+      - Registro dos testes na AWS: registro-testes-aws.md
+      - Carga a 1.000 TPS: teste-de-carga-aws-1000tps.md
+      - Runner EC2 para carga: teste-de-carga-aws-runner-ec2.md
+  - Histórico:
+      - Plano de implementação: 04-plano-implementacao.md
