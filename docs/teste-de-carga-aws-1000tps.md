@@ -1,6 +1,6 @@
 # Teste de carga na AWS — 1.000 TPS com k6
 
-> Status: **implementado, ainda não executado na AWS**. Este documento descreve como o teste é feito e como os resultados são avaliados. Execução: `infra/terraform/scripts/loadtest.sh <lean|full>` (skill `/aws-loadtest`).
+> Status: **implementado e executado na AWS** (1.000 TPS, 11/10/2026, duas rodadas aprovadas; resultados em [registro-testes-aws.md](registro-testes-aws.md)). Este documento descreve como o teste é feito e como os resultados são avaliados. O próximo degrau (8.000 TPS e rajada de 25k) usa o mesmo procedimento e os mesmos critérios. Execução: `infra/terraform/scripts/loadtest.sh <lean|full>` (skill `/aws-loadtest`).
 > Contexto: o teste atual (`load/k6/`, ver [README](../load/k6/README.md)) roda contra o LocalStack e serve como regressão. Aqui o alvo é o ambiente real na AWS (perfil `lean`, ver [infra/terraform](../infra/terraform/README.md)).
 
 ## Sumário
@@ -8,14 +8,14 @@
 1. [Objetivo e pergunta que o teste responde](#1-objetivo-e-pergunta-que-o-teste-responde)
 2. [Arquitetura do teste](#2-arquitetura-do-teste)
 3. [Perfil de carga](#3-perfil-de-carga)
-4. [O que precisa mudar (quando for implementar)](#4-o-que-precisa-mudar-quando-for-implementar)
+4. [O que mudou na implementação](#4-o-que-mudou-na-implementação)
 5. [Execução passo a passo](#5-execução-passo-a-passo)
 6. [O que será medido e onde](#6-o-que-será-medido-e-onde)
 7. [Critérios de aceite](#7-critérios-de-aceite)
 8. [Como interpretar os resultados](#8-como-interpretar-os-resultados)
 9. [Riscos, custo e segurança](#9-riscos-custo-e-segurança)
 10. [Modelo de relatório](#10-modelo-de-relatório)
-11. [Decisões em aberto](#11-decisões-em-aberto)
+11. [Decisões tomadas e pendências](#11-decisões-tomadas-e-pendências)
 
 ---
 
@@ -399,7 +399,7 @@ Repetir | corrigir X | subir para 2.000 TPS
 
 ---
 
-## 11. Decisões em aberto
+## 11. Decisões tomadas e pendências
 
 Decididas:
 
@@ -409,6 +409,8 @@ Decididas:
 - **Imagem própria do k6 no ECR** (`FROM grafana/k6`, com o script e o `k6-reporter` embutidos).
 - **Resultados em HTML local**, via logs do CloudWatch (item 9 da seção 4).
 
-Ainda em aberto:
+Resolvido na execução:
 
-1. **Fallback do HTML**: se o relatório HTML não couber nos logs de forma prática, aceitar um bucket S3 temporário (exige bucket e permissão `s3:PutObject` na task role)?
+1. **Fallback do HTML**: não foi preciso o bucket S3. O resumo JSON e o HTML saíram pelos logs do CloudWatch e o script os gravou em `load/k6/results/` (ver [registro](registro-testes-aws.md)).
+
+Pendente para o degrau seguinte (8.000 TPS): confirmar se o gerador (2 vCPU / 4 GB) sustenta 8.000 requisições/s com assinatura SigV4 (critério G1 de CPU < 80%) ou se é preciso mais de uma task geradora ou o runner EC2 ([runner EC2](teste-de-carga-aws-runner-ec2.md)).

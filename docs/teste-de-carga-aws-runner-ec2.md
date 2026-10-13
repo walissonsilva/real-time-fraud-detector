@@ -1,6 +1,6 @@
 # Teste de carga na AWS: gerador k6 em EC2 Spot
 
-> Status: **fase 1 validada (1.000 TPS aprovado em EC2 Spot `c6i.xlarge`)**. Fases 2 e 3 são plano. Complementa [teste-de-carga-aws-1000tps.md](teste-de-carga-aws-1000tps.md), que define critérios, perfil de carga e avaliação.
+> Status: **fase 1 validada (1.000 TPS em EC2 Spot `c6i.xlarge`) e 4.000 TPS aprovado com uma única instância `c6i.2xlarge` (13/10/2026)**. Os shards (fase 2) e o degrau de 8.000 TPS (fase 3) seguem como plano e dependem de cotas. Complementa [teste-de-carga-aws-1000tps.md](teste-de-carga-aws-1000tps.md), que define critérios, perfil de carga e avaliação.
 
 ## Sumário
 

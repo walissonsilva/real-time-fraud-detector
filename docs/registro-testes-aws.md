@@ -21,10 +21,11 @@ Procedimentos: [teste de carga 1000 TPS](teste-de-carga-aws-1000tps.md) · [runn
 | 2026-10-11 00:11 | Principal 1 (sem troca de regras) | 1000 TPS, 90 s aquec. + 300 s steady + 60 s drain | ✅ C1–C11, G1 | 354.000 / 354.000 | 92 ms / 122 ms | 149 ms | 3.513 / 3.513, 0 dup. | 21,8% / 8,3% | Linha de base |
 | 2026-10-11 00:38 | Smoke 2 | 50 TPS, 60 s | ✅ | 3.000 / 3.000 | 56 ms / 101 ms | 593 ms | 611 / 611 | n/d | |
 | 2026-10-11 00:40 | **T053**: principal 2, **com publicação de regras no meio** | 1000 TPS, idem | ✅ C1–C11, G1 | 353.999 / 354.000 | 105 ms / 242 ms | 284 ms | 3.703 / 3.703, 0 dup. | 31,2% / 8,4% | Revisão `r20261011004358` publicada a ~200 s do início (janela steady); 3 instâncias aplicaram em 2–6 s, sem reinício |
+| 2026-10-13 05:05 | **Principal 4.000 TPS** (1 instância k6 `c6i.2xlarge` Spot, 6 tasks On-Demand, 1% de alertas) | 4000 TPS, 90 s aquec. + 300 s steady + 60 s drain | ✅ C1–C11, G1 | 1.388.978 / 1.389.000, 0 descartadas | 90 ms / 174 ms (máx. 475 ms) | 207 ms | 13.905 / 13.905, 0 dup. | 49,6% / 15,9% | Primeiro degrau acima da linha de base; gerador a 58% de CPU (máx. 63,7%); 31,6 conexões médias no RDS |
 
 Critérios de aprovação (C1–C11, G1): envio ≥ 99% sem descartes, erros < 0,1%, alertas recebidos = esperados, 0 duplicados, p95/p99 de serviço < 500 ms, fila `transactions` sem acúmulo, DLQs vazias, CPU ECS < 75%, CPU RDS < 60%, nenhuma task parada, CPU do gerador < 80%.
 
-Relatórios: `load/k6/results/20261011T001125Z-aws-main-25285452*` e `20261011T004007Z-aws-main-0e46e4b5*`.
+Relatórios: `load/k6/results/20261011T001125Z-aws-main-25285452*`, `20261011T004007Z-aws-main-0e46e4b5*` e `20261013T050554Z-aws-main-3b8ac3cc*` (4.000 TPS).
 
 ## Testes simples
 
@@ -53,6 +54,7 @@ Cenários de [`quickstart.md` §3](../specs/002-appconfig-dynamic-rules/quicksta
 | Data (UTC) | Teste | Resultado | Métrica principal |
 |---|---|---|---|
 | 2026-10-10 | `terraform plan` restrito (recursos novos do AppConfig) | ✅ | 16 a criar, 0 a alterar, 0 a destruir |
+| 2026-10-13 | `terraform apply` restrito aos alarmes `alert-latency-p99-high` e `outbox-oldest-pending-high` | ✅ | 2 a criar, 0 a alterar, 0 a destruir; ambos em `INSUFFICIENT_DATA` (sem tráfego), assinatura do tópico `ops-alerts` confirmada |
 | 2026-10-10 | `terraform apply` completo com a imagem `634e66e-appconfig` | ✅ | 3 a criar, 3 a alterar, 2 a destruir; rolling update das 3 tasks concluído |
 | 2026-10-10 | Sondagem do repositório contra o AppConfig real | ✅ | `rules.loaded` revisão 20261010234513, 4 regras, 1 tentativa |
 | 2026-10-10 | Logs das 3 tasks após o deploy | ✅ | `rules.loaded` nas 3; alarmes `rules-*` em OK |
@@ -64,3 +66,9 @@ Cenários de [`quickstart.md` §3](../specs/002-appconfig-dynamic-rules/quicksta
 - **A3: o alarme composto funciona como monitor do ambiente.** Confirmado no cenário 4; o AppConfig reverteu em ~1 s depois que o composto entrou em ALARM.
 - **A4: a troca de regras sob carga não degradou a latência** de forma relevante: p99 de serviço de 242 ms contra 122 ms na rodada sem troca, ambos abaixo de 500 ms. Uma execução por cenário; vale repetir para separar a troca da variação do ambiente.
 - **A5: cenários 6b, 7 e 9 sem execução na AWS.** O 6b e o 7 criam falha deliberada em produção e foram bloqueados ou deixados para autorização explícita; o 9 depende de espera de 20 min.
+- **A6: um `terraform plan` sem `-var image_tag=...` seria destrutivo.** Sem a tag, o plano trocava as task definitions pela tag `none`, removia o alarme `ecs-running-below-desired` e alterava o autoscaling e a policy da aplicação. Use sempre `up.sh` ou informe a tag em execução (`aws ecs describe-task-definition`). Detectado e descartado em 13/10/2026 antes de qualquer apply.
+- **A7: o validador do perfil do AppConfig embute `rules-document.v1.draft4.schema.json`.** Qualquer edição nesse arquivo, inclusive só de `description`, aparece como update do perfil em produção. Mudanças de texto devem ficar nos outros schemas.
+- **A8: `-target` no dashboard arrasta o RDS.** O dashboard referencia o identificador do banco, então o alvo inclui o `aws_db_parameter_group` (drift de `apply_method` em `rds.force_ssl`, pré-existente). O dashboard ficou pendente e é aplicado junto com esse ajuste.
+- **A9: o RDS escalou melhor do que a extrapolação previa.** Entre 1.000 e 4.000 TPS a CPU do RDS foi de ~8% para 15,9% (a extrapolação linear dizia ~33%) e as conexões ficaram em ~32. A CPU do ECS foi a 49,6% com 6 tasks (~670 TPS por task). Por extrapolação linear (**estimativa, não medição**), 8.000 TPS pediriam ~10 a 12 tasks de 1 vCPU e deixariam o RDS em ~30%, abaixo do critério C10. O limite para o 8k é a **cota de capacidade** (Fargate e EC2 Spot), não um componente saturado.
+- **A10: o `loadtest.sh` aplica o plano completo, não só o override.** A rodada de 4.000 TPS aplicou também pendências do Terraform (widget de alarmes do dashboard e `apply_method` do `rds.force_ssl`, drift do provider, sem mudança de valor). O provider AWS não respondeu duas vezes ao carregar e o script repetiu com sucesso.
+- **A11: 8.000 TPS e a rajada de 25k não foram executados.** A cota de EC2 Spot (8 vCPU) e a de Fargate On-Demand (8 vCPU; pedido de 16 aberto) e a ausência de shards do k6 (fase 2 do runner EC2) impedem um teste válido. A 4.000 TPS o gerador já usa 58% de uma instância de 8 vCPU.
