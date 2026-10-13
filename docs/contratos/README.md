@@ -1,19 +1,19 @@
 # Contratos
 
-> Status: **rascunho v0.1** · Premissas: [01-premissas.md](../01-premissas.md) · RF: [02](../02-requisitos-funcionais.md) · RNF: [03](../03-requisitos-nao-funcionais.md)
-> Os contratos são **independentes de broker** (ADR-01 em aberto). Nomes de tópicos/filas abaixo são lógicos.
+> Status: **vigente** (revisado em 12/10/2026; só os endpoints operacionais do OpenAPI estão implementados) · Premissas: [01-premissas.md](../01-premissas.md) · RF: [02](../02-requisitos-funcionais.md) · RNF: [03](../03-requisitos-nao-funcionais.md)
+> Os contratos são **independentes de broker** (ADR-01: SQS/SNS na implementação). Nomes de tópicos/filas abaixo são lógicos.
 
 ## 1. Índice
 
 | # | Contrato | Tipo | Fluxo | Arquivo |
 |---|----------|------|-------|---------|
 | 1 | `TransactionEvent v1` | Evento (entrada) | Serviços de origem → motor | [transaction-event.v1.schema.json](transaction-event.v1.schema.json) |
-| 2 | `Rule v1` | Dado / API | Admin de regras → repositório → motor | [rule.v1.schema.json](rule.v1.schema.json) |
+| 2 | `Rule v1` | Dado | Operador → AppConfig → motor | [rule.v1.schema.json](rule.v1.schema.json) |
 | 3 | `FraudAlert v1` | Evento (saída) | Motor → canais e consumidores | [fraud-alert.v1.schema.json](fraud-alert.v1.schema.json) |
-| 4 | API HTTP v1 | OpenAPI 3.1 | Ingestão (opcional), regras, canais, alertas, saúde | [openapi.v1.yaml](openapi.v1.yaml) |
+| 4 | API HTTP operacional v1 | OpenAPI 3.1 | Somente `/health/live`, `/health/ready` e `/metrics` (a API de ingestão, administração e consulta **não foi implementada**) | [openapi.v1.yaml](openapi.v1.yaml) |
 | 5 | `AlertDelivery v1` | Mensagem interna | Roteador → adaptador de canal | [alert-delivery.v1.schema.json](alert-delivery.v1.schema.json) |
 | 6 | `DlqMessage v1` | Envelope | Qualquer etapa → DLQ → *redrive* | [dlq-message.v1.schema.json](dlq-message.v1.schema.json) |
-| 7 | Webhook de saída | Convenção HTTP | Motor → sistema antifraude interno | seção 5 abaixo |
+| 7 | Webhook de saída | Convenção HTTP — **desenho, não implementado** (o canal antifraude é uma fila SQS FIFO; ver ADR-05) | Motor → sistema antifraude interno | seção 5 abaixo |
 | 8 | `RulesDocument v1` | Documento de configuração | Operador → AWS AppConfig → motor (instâncias) | [rules-document.v1.schema.json](rules-document.v1.schema.json) (2020-12) e [rules-document.v1.draft4.schema.json](rules-document.v1.draft4.schema.json) (espelho estrutural em draft 4, validador do perfil do AppConfig) |
 
 Exemplos válidos e inválidos estão em [examples/](examples/). Convenção de nome: `<contrato>.<caso>.valid.json` deve passar; `.invalid.json` deve falhar. Para conferir: `node docs/contratos/validate-contracts.mjs` (precisa de `ajv` e `ajv-formats`; vira teste de contrato na CI, RNF-51).
@@ -22,7 +22,7 @@ Exemplos válidos e inválidos estão em [examples/](examples/). Convenção de 
 
 ```
 produtores ──▶ [transactions.v1] ──▶ validação ──▶ avaliação de regras ──▶ persistência + outbox
- (ou POST /v1/transactions)             │ inválido                               │
+ (SQS `transactions`)                    │ inválido                               │
                                         ▼                                        ▼
                                   [transactions.dlq]                     [alerts.v1] (FraudAlert)
                                                                                  │ roteamento (política de canais)
@@ -97,7 +97,9 @@ Consequência para os produtores: reenviar o mesmo evento é seguro. Reenviar co
 - Resposta esperada: `2xx` em até 2 s. `408`, `429` e `5xx` ou *timeout* → *retry* exponencial com *jitter*. Outros `4xx` → sem retry, vai para a DLQ com `PROVIDER_REJECTED`.
 - *Circuit breaker* por receptor (RF-36, RNF-17).
 
-## 6. Autorização da API
+## 6. Autorização da API (desenho, não implementado)
+
+> A API de administração e a de ingestão foram retiradas do OpenAPI por não estarem implementadas. Hoje a autorização é por IAM: a role das tarefas só lê o perfil de regras no AppConfig, e quem publica regras usa a política `rules-operator` (ADR-03). A tabela abaixo é o desenho-alvo.
 
 | Papel | Escopos | Pode |
 |-------|---------|------|
@@ -135,5 +137,5 @@ Token opaco **continua sendo dado pessoal** quando permite reidentificação (ps
 
 1. **Escopo das regras com janela (P-08):** `Rule v1` já suporta `kind: WINDOWED`, mas na fase 1 o motor rejeita essas regras na validação (RF-18, RF-26). A fase 2 ativa só a velocidade (`COUNT`). **"Viagem impossível"** não é expressável hoje (as agregações `COUNT`, `SUM`, `DISTINCT_COUNT` e `MAX` não guardam o último ponto geográfico) e está fora de escopo; se um dia entrar, precisa da agregação `LAST` e da função `distanceKm` na linguagem de expressão (ADR-03).
 2. **Estorno após alerta (P-07)**: hoje o disparo posterior não gera novo alerta nem atualiza o existente. Se o time antifraude quiser ver isso, adicionar evento `alert.updated`.
-3. **Limites da API de ingestão** (tamanho 16 KiB, taxa por produtor): valores iniciais; confirmar no teste de carga.
-4. **Retenção e *replay***: o enunciado não pede *replay*; a DLQ cobre reprocessamento de falhas. Se ADR-01 escolher SQS, nenhum contrato muda.
+3. **Limites da API de ingestão** (tamanho 16 KiB, taxa por produtor): a API não foi implementada; o limite efetivo é o do SQS (256 KiB por mensagem).
+4. **Retenção e *replay***: o enunciado não pede *replay*; a DLQ cobre reprocessamento de falhas. O ADR-01 escolheu SQS/SNS e nenhum contrato mudou.

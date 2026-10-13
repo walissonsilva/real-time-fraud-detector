@@ -1,6 +1,6 @@
 # Modelo de dados (PostgreSQL)
 
-Diagrama entidade-relacionamento das tabelas do Postgres, derivado das migrações em [`src/database/migrations/`](../src/database/migrations/) (`001_init.sql` e `002_outbox_relay.sql`). Decisão de armazenamento: [ADR-04](adr/ADR-04-armazenamento.md). Descrição por campo e regras de consistência do *outbox*: [`specs/001-transaction-fraud-detection/data-model.md`](../specs/001-transaction-fraud-detection/data-model.md).
+Diagrama entidade-relacionamento das tabelas do Postgres, derivado das migrações em [`src/database/migrations/`](../src/database/migrations/) (`001_init.sql`, `002_outbox_relay.sql` e `003_drop_rules_tables.sql`). Decisão de armazenamento: [ADR-04](adr/ADR-04-armazenamento.md). Descrição por campo e regras de consistência do *outbox*: [`specs/001-transaction-fraud-detection/data-model.md`](../specs/001-transaction-fraud-detection/data-model.md).
 
 ## Diagrama
 
@@ -61,4 +61,4 @@ Fluxo de escrita: alerta + outbox numa transação → publicação no SNS → `
 
 ## Tabelas da migração sem uso
 
-A migração `001_init.sql` ainda cria `audit_log` e `routing_policy`, mas **nenhum código da aplicação as lê ou escreve**; por isso não aparecem no diagrama. As regras de detecção não ficam no banco: vêm do AWS AppConfig em produção e de `config/rules.json` em desenvolvimento ([ADR-03](adr/ADR-03-motor-de-regras.md)), e a auditoria das mudanças de regra fica no AppConfig e no CloudTrail.
+A migração `001_init.sql` ainda cria `audit_log` e `routing_policy`, mas **nenhum código da aplicação as lê ou escreve**; por isso não aparecem no diagrama. As regras de detecção não ficam no banco: vêm do AWS AppConfig em produção e de `config/rules.json` em desenvolvimento ([ADR-03](adr/ADR-03-motor-de-regras.md)), e a auditoria das mudanças de regra fica no AppConfig e no CloudTrail. As tabelas `rule_versions` e `rules_revision`, criadas na `001`, foram removidas pela `003` quando as regras saíram do banco.

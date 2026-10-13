@@ -46,7 +46,7 @@
     "expression": {
       "type": "string",
       "maxLength": 2000,
-      "description": "Expressão booleana (linguagem decidida no ADR-03; alvo: CEL). Variáveis: tx.* (evento), agg.* (janela), params.*. Sem efeitos colaterais, sem laços, com custo limitado."
+      "description": "Expressão booleana (subconjunto stateless de CEL, interpretador próprio; ver ADR-03). Variáveis: tx.* (evento), agg.* (janela), params.*. Sem efeitos colaterais, sem laços, com custo limitado."
     },
     "reason": { "type": "string", "maxLength": 256, "description": "Texto que explica o disparo no alerta; admite {placeholders} de agg/params." },
     "ttlSeconds": { "type": "integer", "minimum": 60, "description": "TTL do estado da janela." }
