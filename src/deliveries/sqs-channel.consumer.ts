@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import {
+  ChangeMessageVisibilityCommand,
   DeleteMessageCommand,
   GetQueueUrlCommand,
   Message,
@@ -16,6 +17,7 @@ import { InMemoryMetrics } from '../observability/metrics';
 import { SqsDlqPublisher } from '../dlq/sqs-dlq.publisher';
 
 const POLL_WAIT_S = 2;
+const MAX_DEFER_S = 300;
 
 export interface SqsChannelConsumerOptions {
   readonly queue: string;
@@ -110,7 +112,11 @@ export class SqsChannelConsumer {
         await this.delete(message);
         return;
       }
-      await this.deliver.execute(alert, this.provider);
+      const outcome = await this.deliver.execute(alert, this.provider);
+      if (outcome === 'DEFERRED') {
+        await this.defer(message, this.deliver.retryAfterMs(this.provider));
+        return;
+      }
       await this.delete(message);
     } catch (err) {
       this.metrics.increment('deliveries_total', { channel: this.provider.channel, status: 'infra_failure' });
@@ -135,6 +141,14 @@ export class SqsChannelConsumer {
     );
     this.metrics.increment('dlq_total', { stage: 'CHANNEL_DELIVERY' });
     this.logger.error('mensagem de canal inválida enviada à DLQ', { channel: this.provider.channel });
+  }
+
+  /** Breaker aberto: devolve a mensagem à fila só depois do cooldown, sem consumir tentativa nem ir à DLQ. */
+  private async defer(message: Message, retryAfterMs: number) {
+    const timeout = Math.min(MAX_DEFER_S, Math.max(1, Math.ceil(retryAfterMs / 1000)));
+    await this.sqs.send(
+      new ChangeMessageVisibilityCommand({ QueueUrl: this.queueUrl, ReceiptHandle: message.ReceiptHandle!, VisibilityTimeout: timeout }),
+    );
   }
 
   private async delete(message: Message) {

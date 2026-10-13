@@ -1,0 +1,21 @@
+{
+  "schemaVersion": "1.0",
+  "deliveryId": "c1b7f6a4e2d94b0f8a3c5d7e9f1a2b4c6d8e0f1a3b5c7d9e1f2a4b6c8d0e2f4a",
+  "alertId": "b4d1c1de-5a0f-4a58-9f4c-0d0c8b6c0e11",
+  "channel": "SMS",
+  "audience": "CUSTOMER",
+  "severity": "HIGH",
+  "customerId": "cus_8f3b1c",
+  "template": {
+    "id": "suspicious-transaction.v1",
+    "locale": "pt-BR",
+    "params": {
+      "amountFormatted": "R$ 15.000,00",
+      "transactionType": "PIX"
+    }
+  },
+  "attempt": 1,
+  "createdAt": "2026-10-03T14:21:07.620Z",
+  "expiresAt": "2026-10-03T14:31:07.620Z",
+  "traceId": "4bf92f3577b34da6a3ce929d0e0e4736"
+}

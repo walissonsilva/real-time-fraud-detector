@@ -124,4 +124,21 @@ describe('MetricsLogPublisher', () => {
     expect(pipeline()[1]).toMatchObject({ EventsNoAlert: 5, EventsAlerted: 0, DeliveriesDelivered: 0 });
     publisher.onModuleDestroy();
   });
+
+  it('pipeline.metrics inclui fallback/adiadas (deltas) e o estado dos circuit breakers por canal (gauges)', () => {
+    const { pipeline, metrics, publisher } = setup();
+    metrics.increment('deliveries_total', { channel: 'PUSH', status: 'fallback' }, 4);
+    metrics.increment('deliveries_total', { channel: 'PUSH', status: 'deferred' }, 6);
+    metrics.gauge('circuit_breaker_state', 0, { channel: 'ANTIFRAUD_QUEUE' });
+    metrics.gauge('circuit_breaker_state', 2, { channel: 'PUSH' });
+    metrics.gauge('circuit_breaker_state', 1, { channel: 'SMS' });
+    publisher.onModuleInit();
+
+    jest.advanceTimersByTime(60_000);
+    jest.advanceTimersByTime(60_000);
+
+    expect(pipeline()[0]).toMatchObject({ DeliveriesFallback: 4, DeliveriesDeferred: 6, BreakerAntifraud: 0, BreakerPush: 2, BreakerSms: 1 });
+    expect(pipeline()[1]).toMatchObject({ DeliveriesFallback: 0, DeliveriesDeferred: 0, BreakerPush: 2 });
+    publisher.onModuleDestroy();
+  });
 });

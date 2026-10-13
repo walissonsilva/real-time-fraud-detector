@@ -2,7 +2,8 @@ import { Severity } from '../rules/rule';
 
 export type DeliveryChannel = 'ANTIFRAUD_QUEUE' | 'ANTIFRAUD_WEBHOOK' | 'PUSH' | 'SMS' | 'EMAIL';
 export type DeliveryAudience = 'ANTIFRAUD_TEAM' | 'CUSTOMER';
-export type DeliveryStatus = 'PENDING' | 'DELIVERED' | 'DEAD_LETTERED';
+/** FALLBACK_DELIVERED: o canal primário não entregou e o alerta saiu pelo canal alternativo. */
+export type DeliveryStatus = 'PENDING' | 'DELIVERED' | 'DEAD_LETTERED' | 'FALLBACK_DELIVERED';
 
 /** Espelha `AlertDelivery v1` (docs/contratos/alert-delivery.v1.schema.json). */
 export interface AlertDelivery {
@@ -18,6 +19,8 @@ export interface AlertDelivery {
     readonly locale?: string;
     readonly params?: Readonly<Record<string, string | number | boolean>>;
   };
+  /** Canais alternativos, em ordem, quando este falha (ex.: push → SMS). */
+  readonly fallbackChannels?: readonly DeliveryChannel[];
   readonly attempt: number;
   readonly createdAt: string;
   readonly expiresAt: string;

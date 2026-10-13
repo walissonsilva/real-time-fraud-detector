@@ -6,11 +6,21 @@ import { JsonLogger } from '../../observability/logger';
 
 export const CUSTOMER_TEMPLATE_ID = 'suspicious-transaction.v1';
 
-type CustomerParams = Record<string, string | number | boolean>;
+export type CustomerParams = Record<string, string | number | boolean>;
 
 function formatMoney(minorUnits: number, currency: string): string {
   const major = (minorUnits / 100).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   return currency === 'BRL' ? `R$ ${major}` : `${currency} ${major}`;
+}
+
+/** Conteúdo mínimo ao cliente, sem PII além do necessário (compartilhado por push e SMS). */
+export function customerParams(alert: FraudAlert): CustomerParams {
+  return {
+    transactionType: alert.transaction.transactionType,
+    amountFormatted: formatMoney(alert.transaction.amount.minorUnits, alert.transaction.amount.currency),
+    transactionDate: alert.transactionOccurredAt,
+    callToAction: 'CONFIRM_OR_DISPUTE',
+  };
 }
 
 /**
@@ -26,15 +36,12 @@ export class CustomerPushProvider implements NotificationProvider {
   constructor(
     private readonly logger: JsonLogger,
     private readonly fail: () => boolean = () => false,
+    /** Canal alternativo quando o push falha ou o breaker está aberto. */
+    readonly fallback?: NotificationProvider,
   ) {}
 
   buildDelivery(alert: FraudAlert, deliveryId: string, now: Date): AlertDelivery {
-    const params: CustomerParams = {
-      transactionType: alert.transaction.transactionType,
-      amountFormatted: formatMoney(alert.transaction.amount.minorUnits, alert.transaction.amount.currency),
-      transactionDate: alert.transactionOccurredAt,
-      callToAction: 'CONFIRM_OR_DISPUTE',
-    };
+    const params = customerParams(alert);
     return {
       schemaVersion: '1.0',
       deliveryId,
@@ -44,6 +51,7 @@ export class CustomerPushProvider implements NotificationProvider {
       severity: alert.severity,
       customerId: alert.customerId,
       template: { id: CUSTOMER_TEMPLATE_ID, locale: 'pt-BR', params },
+      ...(this.fallback ? { fallbackChannels: [this.fallback.channel] } : {}),
       attempt: 1,
       createdAt: now.toISOString(),
       expiresAt: new Date(now.getTime() + DELIVERY_TTL_MS).toISOString(),

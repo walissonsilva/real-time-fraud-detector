@@ -4,6 +4,7 @@ import { DlqModule } from '../dlq/dlq.module';
 import { JsonLogger } from '../observability/logger';
 import { AntifraudQueueProvider } from './channels/antifraud-queue.provider';
 import { CustomerPushProvider } from './channels/customer-push.provider';
+import { CustomerSmsProvider } from './channels/customer-sms.provider';
 import { ChannelConsumers } from './channel-consumers';
 import { DeliverAlertService } from './deliver-alert.service';
 import { DeliveryRepository } from './delivery.repository';
@@ -14,6 +15,7 @@ export const CHANNEL_FAULTS = Symbol('CHANNEL_FAULTS');
 export interface ChannelFaults {
   antifraud: boolean;
   customer: boolean;
+  sms: boolean;
 }
 
 @Module({
@@ -26,14 +28,16 @@ export interface ChannelFaults {
       useFactory: (config: AppConfig): ChannelFaults => ({
         antifraud: config.channels.failAntifraud,
         customer: config.channels.failCustomer,
+        sms: config.channels.failSms,
       }),
     },
     {
       provide: NOTIFICATION_PROVIDERS,
       inject: [JsonLogger, CHANNEL_FAULTS],
+      // O SMS é só fallback do push: não tem fila nem consumidor próprios.
       useFactory: (logger: JsonLogger, faults: ChannelFaults): NotificationProvider[] => [
         new AntifraudQueueProvider(logger, () => faults.antifraud),
-        new CustomerPushProvider(logger, () => faults.customer),
+        new CustomerPushProvider(logger, () => faults.customer, new CustomerSmsProvider(logger, () => faults.sms)),
       ],
     },
     DeliverAlertService,

@@ -33,6 +33,14 @@ export interface AppConfig {
     /** Injeção de falha nos provedores simulados (demonstração/testes). */
     failAntifraud: boolean;
     failCustomer: boolean;
+    failSms: boolean;
+    /** Falhas consecutivas que abrem o circuit breaker de um canal e tempo aberto antes da sonda. */
+    breakerFailureThreshold: number;
+    breakerOpenMs: number;
+    /** Kill switch: canal desligado por configuração (breaker forçado aberto; push cai no fallback SMS). */
+    disabledAntifraud: boolean;
+    disabledCustomer: boolean;
+    disabledSms: boolean;
   };
 }
 
@@ -112,6 +120,12 @@ export function loadConfig(): AppConfig {
       sendTimeoutMs: int('CHANNEL_SEND_TIMEOUT_MS', 2000),
       failAntifraud: optional('CHANNEL_ANTIFRAUD_FAIL', 'false') === 'true',
       failCustomer: optional('CHANNEL_CUSTOMER_FAIL', 'false') === 'true',
+      failSms: optional('CHANNEL_SMS_FAIL', 'false') === 'true',
+      breakerFailureThreshold: Math.max(1, int('CHANNEL_BREAKER_FAILURE_THRESHOLD', 5)),
+      breakerOpenMs: int('CHANNEL_BREAKER_OPEN_MS', 30000),
+      disabledAntifraud: optional('CHANNEL_ANTIFRAUD_DISABLED', 'false') === 'true',
+      disabledCustomer: optional('CHANNEL_CUSTOMER_DISABLED', 'false') === 'true',
+      disabledSms: optional('CHANNEL_SMS_DISABLED', 'false') === 'true',
     },
   };
 }

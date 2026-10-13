@@ -42,8 +42,8 @@ export class MetricsLogPublisher implements OnModuleInit, OnModuleDestroy {
     return value;
   }
 
-  private gaugeField(field: string, name: string): Record<string, number> {
-    const value = this.metrics.gaugeValue(name);
+  private gaugeField(field: string, name: string, labels?: Record<string, string>): Record<string, number> {
+    const value = this.metrics.gaugeValue(name, labels);
     return value !== undefined ? { [field]: value } : {};
   }
 
@@ -75,6 +75,11 @@ export class MetricsLogPublisher implements OnModuleInit, OnModuleDestroy {
         DeliveriesDelivered: this.delta('DeliveriesDelivered', delivery('delivered')),
         DeliveriesDeadLettered: this.delta('DeliveriesDeadLettered', delivery('dead_lettered')),
         DeliveriesInfraFailure: this.delta('DeliveriesInfraFailure', delivery('infra_failure')),
+        DeliveriesFallback: this.delta('DeliveriesFallback', delivery('fallback')),
+        DeliveriesDeferred: this.delta('DeliveriesDeferred', delivery('deferred')),
+        ...this.gaugeField('BreakerAntifraud', 'circuit_breaker_state', { channel: 'ANTIFRAUD_QUEUE' }),
+        ...this.gaugeField('BreakerPush', 'circuit_breaker_state', { channel: 'PUSH' }),
+        ...this.gaugeField('BreakerSms', 'circuit_breaker_state', { channel: 'SMS' }),
         DlqMessages: this.delta('DlqMessages', m.counterTotal('dlq_total')),
         OutboxPublishFailures: this.delta('OutboxPublishFailures', m.counterTotal('outbox_publish_total', { result: 'failure' })),
         OutboxRepublished: this.delta('OutboxRepublished', m.counterTotal('outbox_relay_republished_total')),

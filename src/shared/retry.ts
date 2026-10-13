@@ -8,6 +8,8 @@ export interface RetryOptions {
   readonly sleep?: (ms: number) => Promise<void>;
   /** Devolve um número em [0, 1); injetável para testes. */
   readonly random?: () => number;
+  /** Erros para os quais retentar não faz sentido (ex.: breaker aberto); relançados na hora. */
+  readonly shouldRetry?: (err: unknown) => boolean;
 }
 
 export class TimeoutError extends Error {
@@ -24,7 +26,7 @@ export function backoffDelayMs(attempt: number, baseDelayMs: number, maxDelayMs 
   return Math.floor(random() * Math.min(maxDelayMs, baseDelayMs * 2 ** (attempt - 1)));
 }
 
-function withTimeout<T>(run: () => Promise<T>, timeoutMs?: number): Promise<T> {
+export function withTimeout<T>(run: () => Promise<T>, timeoutMs?: number): Promise<T> {
   if (!timeoutMs) return run();
   return new Promise<T>((resolve, reject) => {
     const timer = setTimeout(() => reject(new TimeoutError(timeoutMs)), timeoutMs);
@@ -49,6 +51,7 @@ export async function retry<T>(run: () => Promise<T>, options: RetryOptions): Pr
       return await withTimeout(run, options.timeoutMs);
     } catch (err) {
       lastError = err;
+      if (options.shouldRetry && !options.shouldRetry(err)) break;
       if (attempt < options.attempts) {
         await sleep(backoffDelayMs(attempt, options.baseDelayMs, options.maxDelayMs, options.random));
       }

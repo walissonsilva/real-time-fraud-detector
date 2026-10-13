@@ -26,11 +26,11 @@ const metrics = { increment: () => undefined, gauge: () => undefined, observe: (
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 async function eventually<T>(fn: () => Promise<T | undefined | false>, timeoutMs = 20_000): Promise<T> {
-  const deadline = Date.now() + timeoutMs;
+  const deadline = performance.now() + timeoutMs;
   for (;;) {
     const value = await fn();
     if (value) return value;
-    if (Date.now() > deadline) throw new Error('condição não satisfeita a tempo');
+    if (performance.now() > deadline) throw new Error('condição não satisfeita a tempo');
     await sleep(200);
   }
 }

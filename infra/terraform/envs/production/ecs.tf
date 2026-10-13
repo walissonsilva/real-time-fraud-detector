@@ -56,6 +56,12 @@ locals {
     SQS_CHANNEL_POLLERS         = tostring(var.sqs_channel_pollers)
     CHANNEL_ANTIFRAUD_FAIL      = "false"
     CHANNEL_CUSTOMER_FAIL       = "false"
+    CHANNEL_SMS_FAIL            = "false"
+    # Kill switch por canal: "true" força o circuit breaker aberto (push cai no SMS; os demais ficam adiados).
+    # Exige novo deployment do serviço (rolling update, sem deploy de código).
+    CHANNEL_ANTIFRAUD_DISABLED = "false"
+    CHANNEL_CUSTOMER_DISABLED  = "false"
+    CHANNEL_SMS_DISABLED       = "false"
   }
 }
 

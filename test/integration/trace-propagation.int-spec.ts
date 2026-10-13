@@ -11,11 +11,11 @@ import { drain, newPool, newSqs, purge, readExample } from './support';
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 async function eventually<T>(fn: () => Promise<T | undefined | false>, timeoutMs = 40_000): Promise<T> {
-  const deadline = Date.now() + timeoutMs;
+  const deadline = performance.now() + timeoutMs;
   for (;;) {
     const value = await fn();
     if (value) return value;
-    if (Date.now() > deadline) throw new Error('condição não satisfeita a tempo');
+    if (performance.now() > deadline) throw new Error('condição não satisfeita a tempo');
     await sleep(250);
   }
 }
@@ -37,6 +37,7 @@ describe('propagação do traceId (FR-029) (requer infra:up e migrate)', () => {
     process.env.RULES_CONFIG_PATH = 'config/rules.json';
     process.env.CHANNEL_DELIVERY_BASE_DELAY_MS = '20';
     process.env.CHANNEL_DELIVERY_MAX_DELAY_MS = '50';
+    process.env.CHANNEL_BREAKER_FAILURE_THRESHOLD = '1000'; // aqui o alvo é retries → DLQ, não o breaker
     queueUrl = (await sqs.send(new GetQueueUrlCommand({ QueueName: 'transactions' }))).QueueUrl!;
     await purge(sqs, ['transactions', 'alert-deliveries-antifraud-queue.fifo', 'alert-deliveries-customer-push.fifo', 'alert-deliveries-antifraud-queue-dlq.fifo', 'alert-deliveries-customer-push-dlq.fifo']);
     process.stdout.write = ((chunk: string | Uint8Array, ...rest: unknown[]) => {
@@ -71,6 +72,7 @@ describe('propagação do traceId (FR-029) (requer infra:up e migrate)', () => {
     };
     transactionIds.push(event.transactionId);
     faults.customer = failCustomer;
+    faults.sms = failCustomer;
     await sqs.send(
       new SendMessageCommand({
         QueueUrl: queueUrl,
@@ -108,6 +110,7 @@ describe('propagação do traceId (FR-029) (requer infra:up e migrate)', () => {
     const alertId = await eventually(async () => (await pool.query('SELECT alert_id FROM alerts WHERE transaction_id = $1', [event.transactionId])).rows[0]?.alert_id);
     await eventually(async () => (await pool.query('SELECT 1 FROM deliveries WHERE delivery_id = $1 AND status = $2', [deliveryIdOf(alertId, 'PUSH'), 'DEAD_LETTERED'])).rows[0]);
     faults.customer = false;
+    faults.sms = false;
 
     const dead = await drain(sqs, 'alert-deliveries-customer-push-dlq.fifo', (b) => (b.correlation as { alertId?: string } | undefined)?.alertId === alertId);
     expect(dead).toHaveLength(1);

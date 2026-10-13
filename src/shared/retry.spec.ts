@@ -17,6 +17,14 @@ describe('retry', () => {
     expect(sleep).toHaveBeenCalledTimes(2);
   });
 
+  it('não retenta nem espera quando shouldRetry recusa o erro', async () => {
+    const run = jest.fn().mockRejectedValue(new Error('definitivo'));
+    const sleep = jest.fn().mockResolvedValue(undefined);
+    await expect(retry(run, { attempts: 3, baseDelayMs: 10, sleep, shouldRetry: () => false })).rejects.toThrow('definitivo');
+    expect(run).toHaveBeenCalledTimes(1);
+    expect(sleep).not.toHaveBeenCalled();
+  });
+
   it('cresce a espera entre tentativas e respeita o teto', () => {
     expect(backoffDelayMs(1, 100, 1000, noRandom)).toBe(99);
     expect(backoffDelayMs(2, 100, 1000, noRandom)).toBe(199);

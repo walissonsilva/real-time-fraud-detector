@@ -299,6 +299,32 @@ resource "aws_cloudwatch_dashboard" "main" {
           yAxis = { left = { showUnits = false }, right = { min = 0 } }
         }
       },
+
+      # ---- Linha 6: circuit breakers e fallback dos canais ----
+      {
+        type = "metric", width = 12, height = 6, x = 0, y = 37
+        properties = {
+          title = "Circuit breaker por canal (0 fechado, 1 meio-aberto, 2 aberto; máx. entre tasks)", region = var.region, view = "timeSeries", period = 60, stat = "Maximum"
+          metrics = [
+            [local.dash.pipe, "BreakerAntifraud", { label = "antifraude" }],
+            [local.dash.pipe, "BreakerPush", { label = "push (cliente)" }],
+            [local.dash.pipe, "BreakerSms", { label = "SMS (fallback)" }],
+          ]
+          yAxis = { left = { min = 0, max = 2 } }
+        }
+      },
+      {
+        type = "metric", width = 12, height = 6, x = 12, y = 37
+        properties = {
+          title = "Fallback e entregas adiadas (por minuto)", region = var.region, view = "timeSeries", period = 60, stat = "Sum"
+          metrics = [
+            [local.dash.pipe, "DeliveriesFallback", { label = "entregues pelo canal alternativo (push → SMS)" }],
+            [local.dash.pipe, "DeliveriesDeferred", { label = "adiadas (breaker aberto / canal desligado)" }],
+            [local.dash.pipe, "DeliveriesDeadLettered", { label = "esgotaram retries (DLQ)" }],
+          ]
+          yAxis = { left = { min = 0 } }
+        }
+      },
     ], local.tasks_widget)
   })
 }

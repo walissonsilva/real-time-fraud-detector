@@ -11,11 +11,11 @@ import { drain, newPool, newSqs, purge, readExample } from './support';
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 async function eventually<T>(fn: () => Promise<T | undefined | false>, timeoutMs = 40_000): Promise<T> {
-  const deadline = Date.now() + timeoutMs;
+  const deadline = performance.now() + timeoutMs;
   for (;;) {
     const value = await fn();
     if (value) return value;
-    if (Date.now() > deadline) throw new Error('condição não satisfeita a tempo');
+    if (performance.now() > deadline) throw new Error('condição não satisfeita a tempo');
     await sleep(250);
   }
 }
@@ -50,6 +50,7 @@ describe('nenhuma perda silenciosa (SC-006) (requer infra:up e migrate)', () => 
     process.env.RULES_CONFIG_PATH = 'config/rules.json';
     process.env.CHANNEL_DELIVERY_BASE_DELAY_MS = '20';
     process.env.CHANNEL_DELIVERY_MAX_DELAY_MS = '50';
+    process.env.CHANNEL_BREAKER_FAILURE_THRESHOLD = '1000'; // aqui o alvo é retries → DLQ, não o breaker
     queueUrl = (await sqs.send(new GetQueueUrlCommand({ QueueName: 'transactions' }))).QueueUrl!;
     await purge(sqs, ['transactions', 'transactions-dlq', 'alert-deliveries-antifraud-queue.fifo', 'alert-deliveries-customer-push.fifo', ...Object.values(CH_DLQ)]);
     app = (await Test.createTestingModule({ imports: [AppModule] }).compile()).createNestApplication();
@@ -90,12 +91,14 @@ describe('nenhuma perda silenciosa (SC-006) (requer infra:up e migrate)', () => 
       return rows[0].n === (suspiciousOk.length + 1) * 2;
     });
     faults.customer = true;
+    faults.sms = true; // sem o fallback, a entrega esgota as tentativas e vai à DLQ
     await publish({ ...base(), transactionId: suspiciousDead[0], ...big });
     await eventually(async () => {
       const { rows } = await pool.query('SELECT count(*)::int AS n FROM deliveries d JOIN alerts a USING (alert_id) WHERE a.transaction_id = $1 AND d.status IN ($2,$3)', [suspiciousDead[0], 'DELIVERED', 'DEAD_LETTERED']);
       return rows[0].n === 2;
     });
     faults.customer = false;
+    faults.sms = false;
     for (let i = 0; i < 40 && !(await inputEmpty()); i++) await sleep(250);
     expect(await inputEmpty()).toBe(true);
 

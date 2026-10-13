@@ -8,6 +8,7 @@ import { FraudAlert } from '../alerts/fraud-alert';
 import { DlqMessage } from '../dlq/dlq-message';
 import { AntifraudQueueProvider } from './channels/antifraud-queue.provider';
 import { CustomerPushProvider } from './channels/customer-push.provider';
+import { CustomerSmsProvider } from './channels/customer-sms.provider';
 import { DeliverAlertService } from './deliver-alert.service';
 import { JsonLogger } from '../observability/logger';
 import { InMemoryMetrics } from '../observability/metrics';
@@ -21,7 +22,17 @@ const metrics = { increment: jest.fn(), gauge: jest.fn(), observe: jest.fn() } a
 
 const TEST_CONFIG = {
   queues: { antifraudChannelDlq: 'antifraud-dlq.fifo', customerChannelDlq: 'push-dlq.fifo' },
-  channels: { maxAttempts: 3, baseDelayMs: 100, maxDelayMs: 2000, sendTimeoutMs: 2000 },
+  channels: {
+    maxAttempts: 3,
+    baseDelayMs: 100,
+    maxDelayMs: 2000,
+    sendTimeoutMs: 2000,
+    breakerFailureThreshold: 5,
+    breakerOpenMs: 30000,
+    disabledAntifraud: false,
+    disabledCustomer: false,
+    disabledSms: false,
+  },
 } as AppConfig;
 
 class FakeDeliveries {
@@ -43,12 +54,19 @@ class FakeDeliveries {
     r.status = 'DEAD_LETTERED';
     r.lastError = code;
   }
+  async markFallbackDelivered(id: string, code: string) {
+    const r = this.rows.get(id)!;
+    if (r.status === 'PENDING') {
+      r.status = 'FALLBACK_DELIVERED';
+      r.lastError = code;
+    }
+  }
   async isDelivered(id: string) {
     return this.rows.get(id)?.status === 'DELIVERED';
   }
 }
 
-function setup(opts: { failChannels?: DeliveryChannel[]; dlqError?: Error } = {}) {
+function setup(opts: { failChannels?: DeliveryChannel[]; dlqError?: Error; config?: Partial<AppConfig['channels']> } = {}) {
   const deliveries = new FakeDeliveries();
   const published: { queue: string; message: DlqMessage }[] = [];
   const dlq = {
@@ -59,11 +77,13 @@ function setup(opts: { failChannels?: DeliveryChannel[]; dlqError?: Error } = {}
   };
   const sleeps: number[] = [];
   const antifraud = new AntifraudQueueProvider(logger, () => !!opts.failChannels?.includes('ANTIFRAUD_QUEUE'));
+  const sms = new CustomerSmsProvider(logger, () => !!opts.failChannels?.includes('SMS'));
   const push = new CustomerPushProvider(logger, () => !!opts.failChannels?.includes('PUSH'));
+  const pushWithFallback = new CustomerPushProvider(logger, () => !!opts.failChannels?.includes('PUSH'), sms);
   const useCase = new DeliverAlertService(
     deliveries as unknown as DeliveryRepository,
     dlq as unknown as SqsDlqPublisher,
-    TEST_CONFIG,
+    { ...TEST_CONFIG, channels: { ...TEST_CONFIG.channels, ...opts.config } },
     logger,
     metrics,
   );
@@ -71,7 +91,11 @@ function setup(opts: { failChannels?: DeliveryChannel[]; dlqError?: Error } = {}
   useCase.dlqQueues.PUSH = 'push-dlq.fifo';
   useCase.retryOptions = { attempts: 3, baseDelayMs: 100, sleep: async (ms) => void sleeps.push(ms), random: () => 0.5 };
   useCase.newId = () => '00000000-0000-4000-8000-000000000009';
-  return { deliveries, published, sleeps, antifraud, push, useCase };
+  let nowMs = Date.parse(alert.detectedAt) + 1000;
+  useCase.now = () => new Date(nowMs);
+  useCase.breakerClock = () => nowMs;
+  const advance = (ms: number) => (nowMs += ms);
+  return { deliveries, published, sleeps, antifraud, push, pushWithFallback, sms, useCase, advance };
 }
 
 describe('DeliverAlertService', () => {
@@ -149,5 +173,93 @@ describe('DeliverAlertService', () => {
     useCase.retryOptions = { attempts: 2, baseDelayMs: 1, timeoutMs: 20, sleep: async () => undefined };
     await expect(useCase.execute(alert, slow)).resolves.toBe('DEAD_LETTERED');
     expect(published[0].message.reasonDetail).toContain('TimeoutError');
+  });
+
+  describe('circuit breaker, fallback e adiamento', () => {
+    const pushId = deliveryIdOf(alert.alertId, 'PUSH');
+    const smsId = deliveryIdOf(alert.alertId, 'SMS');
+
+    it('push falha → SMS entrega com deliveryId próprio e o push fica FALLBACK_DELIVERED, sem DLQ', async () => {
+      const { useCase, pushWithFallback, sms, deliveries, published } = setup({ failChannels: ['PUSH'] });
+      await expect(useCase.execute(alert, pushWithFallback)).resolves.toBe('FALLBACK_DELIVERED');
+      expect(sms.sent).toHaveLength(1);
+      expect(deliveries.rows.get(smsId)?.status).toBe('DELIVERED');
+      expect(deliveries.rows.get(pushId)?.status).toBe('FALLBACK_DELIVERED');
+      expect(published).toHaveLength(0);
+      expect(metrics.increment).toHaveBeenCalledWith('deliveries_total', { channel: 'PUSH', status: 'fallback' });
+    });
+
+    it('reentrega depois do fallback não reenvia nem SMS nem push', async () => {
+      const { useCase, pushWithFallback, sms } = setup({ failChannels: ['PUSH'] });
+      await useCase.execute(alert, pushWithFallback);
+      await expect(useCase.execute(alert, pushWithFallback)).resolves.toBe('FALLBACK_DELIVERED');
+      expect(sms.sent).toHaveLength(1);
+    });
+
+    it('SMS já entregue e push ainda PENDING (queda entre os passos): não reenvia o SMS', async () => {
+      const { useCase, pushWithFallback, sms, deliveries } = setup({ failChannels: ['PUSH'] });
+      deliveries.rows.set(smsId, { status: 'DELIVERED', attempts: 1 });
+      await expect(useCase.execute(alert, pushWithFallback)).resolves.toBe('FALLBACK_DELIVERED');
+      expect(sms.sent).toHaveLength(0);
+      expect(deliveries.rows.get(pushId)?.status).toBe('FALLBACK_DELIVERED');
+    });
+
+    it('com o breaker do push aberto, falha rápida (sem backoff) e entrega por SMS', async () => {
+      const { useCase, pushWithFallback, sms, sleeps } = setup({ failChannels: ['PUSH'], config: { breakerFailureThreshold: 3 } });
+      await useCase.execute(alert, pushWithFallback); // 3 falhas abrem o breaker
+      expect(useCase.breakerState('PUSH')).toBe('OPEN');
+      sleeps.length = 0;
+      await expect(useCase.execute({ ...alert, alertId: 'alert-2' }, pushWithFallback)).resolves.toBe('FALLBACK_DELIVERED');
+      expect(sleeps).toEqual([]);
+      expect(sms.sent).toHaveLength(2);
+    });
+
+    it('push e SMS fora: breaker aberto adia (DEFERRED), sem DLQ e sem marcar a entrega', async () => {
+      const { useCase, pushWithFallback, published, deliveries } = setup({ failChannels: ['PUSH', 'SMS'], config: { breakerFailureThreshold: 3 } });
+      await expect(useCase.execute(alert, pushWithFallback)).resolves.toBe('DEFERRED');
+      expect(published).toHaveLength(0);
+      expect(deliveries.rows.get(pushId)?.status).toBe('PENDING');
+      expect(useCase.retryAfterMs(pushWithFallback)).toBeGreaterThan(0);
+    });
+
+    it('adiada e alerta vencido (> TTL) → DLQ com DELIVERY_EXPIRED', async () => {
+      const { useCase, pushWithFallback, published, deliveries, advance } = setup({ failChannels: ['PUSH', 'SMS'], config: { breakerFailureThreshold: 3 } });
+      await expect(useCase.execute(alert, pushWithFallback)).resolves.toBe('DEFERRED');
+      advance(11 * 60 * 1000);
+      await expect(useCase.execute(alert, pushWithFallback)).resolves.toBe('DEAD_LETTERED');
+      expect(published[0].message.reasonCode).toBe('DELIVERY_EXPIRED');
+      expect(deliveries.rows.get(pushId)?.status).toBe('DEAD_LETTERED');
+    });
+
+    it('recuperação: após o cooldown a sonda passa e a entrega adiada é concluída pelo push', async () => {
+      const failChannels: DeliveryChannel[] = ['PUSH', 'SMS'];
+      const { useCase, pushWithFallback, sms, deliveries, advance } = setup({ failChannels, config: { breakerFailureThreshold: 3 } });
+      await expect(useCase.execute(alert, pushWithFallback)).resolves.toBe('DEFERRED');
+      failChannels.length = 0;
+      await expect(useCase.execute(alert, pushWithFallback)).resolves.toBe('DEFERRED'); // ainda dentro do cooldown
+      advance(31_000);
+      await expect(useCase.execute(alert, pushWithFallback)).resolves.toBe('DELIVERED');
+      expect(pushWithFallback.sent).toHaveLength(1);
+      expect(sms.sent).toHaveLength(0);
+      expect(deliveries.rows.get(pushId)?.status).toBe('DELIVERED');
+      expect(useCase.breakerState('PUSH')).toBe('CLOSED');
+    });
+
+    it('kill switch do canal: breaker forçado aberto, push cai direto no SMS e antifraude é adiado', async () => {
+      const { useCase, pushWithFallback, antifraud, sms, sleeps } = setup({ config: { disabledCustomer: true, disabledAntifraud: true } });
+      await expect(useCase.execute(alert, pushWithFallback)).resolves.toBe('FALLBACK_DELIVERED');
+      await expect(useCase.execute(alert, antifraud)).resolves.toBe('DEFERRED');
+      expect(sms.sent).toHaveLength(1);
+      expect(antifraud.delivered).toHaveLength(0);
+      expect(sleeps).toEqual([]);
+      useCase.setChannelDisabled('ANTIFRAUD_QUEUE', false);
+      await expect(useCase.execute(alert, antifraud)).resolves.toBe('DELIVERED');
+    });
+
+    it('breaker é por canal: antifraude segue entregando com o push aberto', async () => {
+      const { useCase, pushWithFallback, antifraud } = setup({ failChannels: ['PUSH', 'SMS'], config: { breakerFailureThreshold: 3 } });
+      await useCase.execute(alert, pushWithFallback);
+      await expect(useCase.execute(alert, antifraud)).resolves.toBe('DELIVERED');
+    });
   });
 });
