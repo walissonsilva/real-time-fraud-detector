@@ -11,7 +11,6 @@ export interface Notification {
 export interface NotificationProvider {
   readonly channel: DeliveryChannel;
   readonly audience: DeliveryAudience;
-  /** Canal alternativo (ex.: push → SMS) usado quando este falha ou está com o breaker aberto. */
   readonly fallback?: NotificationProvider;
   /** Monta o `AlertDelivery v1` deste canal a partir do alerta (idempotente: `deliveryId` é estável). */
   buildDelivery(alert: FraudAlert, deliveryId: string, now: Date): AlertDelivery;

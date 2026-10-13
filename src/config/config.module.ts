@@ -34,10 +34,8 @@ export interface AppConfig {
     failAntifraud: boolean;
     failCustomer: boolean;
     failSms: boolean;
-    /** Falhas consecutivas que abrem o circuit breaker de um canal e tempo aberto antes da sonda. */
     breakerFailureThreshold: number;
     breakerOpenMs: number;
-    /** Kill switch: canal desligado por configuração (breaker forçado aberto; push cai no fallback SMS). */
     disabledAntifraud: boolean;
     disabledCustomer: boolean;
     disabledSms: boolean;

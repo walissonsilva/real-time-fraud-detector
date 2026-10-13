@@ -35,7 +35,6 @@ export class MetricsLogPublisher implements OnModuleInit, OnModuleDestroy {
     this.timer = undefined;
   }
 
-  /** Variação do contador desde a emissão anterior (nunca negativa). */
   private delta(field: string, current: number): number {
     const value = Math.max(0, current - (this.previous.get(field) ?? 0));
     this.previous.set(field, current);

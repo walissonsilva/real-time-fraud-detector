@@ -41,7 +41,6 @@ export class DeliveryRepository {
     );
   }
 
-  /** Primário não entregou, mas o alerta saiu pelo canal alternativo (fecha a linha que ficaria PENDING). */
   async markFallbackDelivered(deliveryId: string, errorCode: string): Promise<void> {
     await this.pool.query(
       `UPDATE deliveries SET status = 'FALLBACK_DELIVERED', last_error = $2, updated_at = now()

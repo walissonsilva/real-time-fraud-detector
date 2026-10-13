@@ -8,7 +8,6 @@ export interface RetryOptions {
   readonly sleep?: (ms: number) => Promise<void>;
   /** Devolve um número em [0, 1); injetável para testes. */
   readonly random?: () => number;
-  /** Erros para os quais retentar não faz sentido (ex.: breaker aberto); relançados na hora. */
   readonly shouldRetry?: (err: unknown) => boolean;
 }
 

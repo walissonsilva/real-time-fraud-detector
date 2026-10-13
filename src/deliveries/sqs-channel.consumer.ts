@@ -143,7 +143,6 @@ export class SqsChannelConsumer {
     this.logger.error('mensagem de canal inválida enviada à DLQ', { channel: this.provider.channel });
   }
 
-  /** Breaker aberto: devolve a mensagem à fila só depois do cooldown, sem consumir tentativa nem ir à DLQ. */
   private async defer(message: Message, retryAfterMs: number) {
     const timeout = Math.min(MAX_DEFER_S, Math.max(1, Math.ceil(retryAfterMs / 1000)));
     await this.sqs.send(

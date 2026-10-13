@@ -34,7 +34,7 @@ export interface ChannelFaults {
     {
       provide: NOTIFICATION_PROVIDERS,
       inject: [JsonLogger, CHANNEL_FAULTS],
-      // O SMS é só fallback do push: não tem fila nem consumidor próprios.
+      // O SMS é só fallback do push: não tem fila nem consumidor.
       useFactory: (logger: JsonLogger, faults: ChannelFaults): NotificationProvider[] => [
         new AntifraudQueueProvider(logger, () => faults.antifraud),
         new CustomerPushProvider(logger, () => faults.customer, new CustomerSmsProvider(logger, () => faults.sms)),

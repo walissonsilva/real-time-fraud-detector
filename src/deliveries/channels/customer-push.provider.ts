@@ -13,7 +13,6 @@ function formatMoney(minorUnits: number, currency: string): string {
   return currency === 'BRL' ? `R$ ${major}` : `${currency} ${major}`;
 }
 
-/** Conteúdo mínimo ao cliente, sem PII além do necessário (compartilhado por push e SMS). */
 export function customerParams(alert: FraudAlert): CustomerParams {
   return {
     transactionType: alert.transaction.transactionType,
@@ -36,7 +35,6 @@ export class CustomerPushProvider implements NotificationProvider {
   constructor(
     private readonly logger: JsonLogger,
     private readonly fail: () => boolean = () => false,
-    /** Canal alternativo quando o push falha ou o breaker está aberto. */
     readonly fallback?: NotificationProvider,
   ) {}
 

@@ -60,8 +60,7 @@ export class OutboxEntryPublisherService {
     metrics.increment('outbox_publish_total', { result: 'success' });
     const latencyMs = Math.max(0, acceptedAt.getTime() - new Date(alert.ingestedAt).getTime());
     metrics.observe('alert_latency_ms', latencyMs);
-    // Uma linha por alerta (taxa de alertas, não de eventos): o filtro de métrica do CloudWatch (`AlertLatencyMs`) calcula
-    // p50/p95/p99 do SLO a partir dela. Sem PII: só ids opacos, severidade e a latência.
+    // Uma linha por alerta: base do filtro de métrica `AlertLatencyMs` do CloudWatch.
     logger.info('alert.published', { alertId: alert.alertId, traceId: alert.traceId, severity: alert.severity, latencyMs });
     try {
       await alerts.markPublished(alert.alertId, acceptedAt);

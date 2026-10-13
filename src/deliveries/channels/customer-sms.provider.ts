@@ -5,10 +5,6 @@ import { DELIVERY_TTL_MS } from './antifraud-queue.provider';
 import { CUSTOMER_TEMPLATE_ID, CustomerParams, customerParams } from './customer-push.provider';
 import { JsonLogger } from '../../observability/logger';
 
-/**
- * Canal alternativo do cliente (provedor SMS simulado): mesmo conteúdo mínimo do push. Não tem fila própria:
- * só é acionado pelo `DeliverAlertService` quando o push falha ou está com o breaker aberto.
- */
 export class CustomerSmsProvider implements NotificationProvider {
   readonly channel = 'SMS' as const;
   readonly audience = 'CUSTOMER' as const;

@@ -40,13 +40,12 @@ export class DeliverAlertService {
   /** Relógio e gerador de id substituíveis em testes. */
   now: () => Date = () => new Date();
   newId: () => string = randomUUID;
-  /** Relógio dos breakers em ms: monotônico, para não depender do relógio de parede (saltos/NTP). */
+  /** Monotônico: o cooldown do breaker não pode depender do relógio de parede. */
   breakerClock: () => number = () => performance.now();
   /** DLQ por canal (nome lógico da fila). */
   readonly dlqQueues: Partial<Record<DeliveryChannel, string>>;
   /** Política de retentativa; `sleep`/`random` podem ser trocados em testes. */
   retryOptions: Pick<RetryOptions, 'attempts' | 'baseDelayMs' | 'maxDelayMs' | 'timeoutMs' | 'sleep' | 'random'>;
-  /** Um breaker por canal (estado em memória, por instância). */
   private readonly breakers = new Map<DeliveryChannel, CircuitBreaker>();
 
   constructor(
@@ -71,12 +70,10 @@ export class DeliverAlertService {
     for (const channel of ['ANTIFRAUD_QUEUE', 'PUSH', 'SMS'] as const) this.createBreaker(channel, config, !!disabled[channel]);
   }
 
-  /** Estado corrente do breaker do canal (CLOSED se o canal não tem breaker). */
   breakerState(channel: DeliveryChannel): BreakerState {
     return this.breakers.get(channel)?.state ?? 'CLOSED';
   }
 
-  /** Kill switch em tempo de execução (além da variável de ambiente): força o breaker do canal aberto. */
   setChannelDisabled(channel: DeliveryChannel, disabled: boolean): void {
     const breaker = this.breakers.get(channel);
     if (!breaker) return;
@@ -84,7 +81,6 @@ export class DeliverAlertService {
     this.metrics.gauge('circuit_breaker_state', BREAKER_GAUGE[breaker.state], { channel });
   }
 
-  /** Em quanto tempo vale reentregar uma mensagem adiada (o primeiro breaker, primário ou fallback, que reabre). */
   retryAfterMs(provider: NotificationProvider): number {
     const waits = [provider, provider.fallback]
       .filter((p): p is NotificationProvider => !!p)
@@ -109,7 +105,7 @@ export class DeliverAlertService {
     metrics.gauge('circuit_breaker_state', BREAKER_GAUGE[breaker.state], { channel });
   }
 
-  /** Envia por um provedor: retry (sem esperar com breaker aberto) → breaker → timeout → `send`. */
+  /** Camadas: retry → breaker → timeout → `send`. */
   private async sendWithRetry(alert: FraudAlert, provider: NotificationProvider, deliveryId: string, startedAt: Date, onAttempt: () => number) {
     const breaker = this.breakers.get(provider.channel)!;
     const delivery = provider.buildDelivery(alert, deliveryId, startedAt);
@@ -128,7 +124,6 @@ export class DeliverAlertService {
     );
   }
 
-  /** `true` se o alternativo entregou (ou já tinha entregue). */
   private async tryFallback(alert: FraudAlert, primary: NotificationProvider, primaryId: string, primaryError: string): Promise<boolean> {
     const { deliveries, logger, metrics } = this;
     const fallback = primary.fallback!;

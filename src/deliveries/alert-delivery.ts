@@ -19,7 +19,6 @@ export interface AlertDelivery {
     readonly locale?: string;
     readonly params?: Readonly<Record<string, string | number | boolean>>;
   };
-  /** Canais alternativos, em ordem, quando este falha (ex.: push → SMS). */
   readonly fallbackChannels?: readonly DeliveryChannel[];
   readonly attempt: number;
   readonly createdAt: string;
