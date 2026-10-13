@@ -1,6 +1,6 @@
 # 04 — Plano de implementação em 6 dias
 
-> Status: **plano v0.1** · Período: **07 a 12/10/2026**, inclusive, no fuso America/Sao_Paulo.
+> Status: **plano original, executado** (histórico; o que foi entregue e o que ficou de fora está em [README](../README.md#limitações-conhecidas-e-próximos-passos)) · Período: **07 a 12/10/2026**, inclusive, no fuso America/Sao_Paulo.
 > Base: [premissas](01-premissas.md), [RF](02-requisitos-funcionais.md), [RNF](03-requisitos-nao-funcionais.md) e [contratos](contratos/README.md).
 
 ## Ponto de partida
@@ -34,7 +34,7 @@ As metas de **8.000 TPS, pico de 25.000 TPS e p99 ≤ 500 ms** permanecem crité
 
 - **ADR-01:** escolher um único broker para a entrega local e definir o equivalente AWS. Comparar Kafka/MSK e SQS/SNS considerando throughput, ordenação por conta, timestamp do aceite, redelivery, DLQ e custo operacional. Não implementar dois adaptadores neste prazo. Proposta registrada em [ADR-01](adr/ADR-01-mensageria.md): SQS padrão na entrada e SNS FIFO na saída; confirmar as cotas. Ordenação estrita não é exigida (ADR-02).
 - **ADR-02/04:** decidir dedupe e armazenamento de alertas, decisões, regras, auditoria e outbox. PostgreSQL proposto em [ADR-04](adr/ADR-04-armazenamento.md) pela transação e pelas restrições de unicidade. O estado de janela (Redis `ZSET`, [ADR-02](adr/ADR-02-dedupe-e-estado-de-janela.md)) fica para a fase 2; o Redis já entra no Compose e a porta `WindowStateStore` ganha uma implementação em memória.
-- **ADR-03:** validar a linguagem de expressão com as expressões já existentes nos exemplos, inclusive `has(...)`. A linguagem segue **em aberto** entre CEL e JSON Logic ([ADR-03](adr/ADR-03-motor-de-regras.md)). Os contratos usam string e apontam CEL como alvo; JSON Logic exigiria ajuste explícito de contrato. Não usar `eval`; limitar tamanho, profundidade, operadores e custo.
+- **ADR-03:** validar a linguagem de expressão com as expressões já existentes nos exemplos, inclusive `has(...)`. A linguagem ficou decidida na implementação: subconjunto stateless de CEL com interpretador próprio ([ADR-03](adr/ADR-03-motor-de-regras.md)); o contrato manteve `expression` como string. Não usar `eval`; limitar tamanho, profundidade, operadores e custo.
 - **ADR-05:** definir comportamento por dependência: regras em cache; provedor isolado; banco indisponível sem ack; broker indisponível sem aceitar ingestão como concluída. Definir bootstrap sem snapshot de regras: não processar silenciosamente com conjunto vazio.
 - Resolver inconsistências antes de congelar contratos: RF-04 usa `transactionId + eventType`, enquanto RNF-15 menciona apenas `transactionId`; separar dedupe de evento da unicidade de alerta. Verificar se a composição OpenAPI `RuleVersion` aceita metadados adicionais diante de `additionalProperties: false` no schema base.
 - Definir como `publishedAt` será representado no outbox e na mensagem. O instante anterior ao envio e o aceite confirmado pelo broker são marcos diferentes; medir o SLO no aceite confirmado e documentar a semântica do payload.

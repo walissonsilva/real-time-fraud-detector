@@ -1,6 +1,6 @@
 # 03 — Requisitos não funcionais
 
-> Status: **rascunho v0.1** · Premissas: [01-premissas.md](01-premissas.md)
+> Status: **vigente** (revisado em 12/10/2026; evidências de vazão e latência em [registro-testes-aws.md](registro-testes-aws.md)) · Premissas: [01-premissas.md](01-premissas.md)
 > Cada RNF é **mensurável** e tem a forma de verificá-lo. Os números vêm das premissas P-10 a P-20.
 
 ## RNF-1 Desempenho e escalabilidade

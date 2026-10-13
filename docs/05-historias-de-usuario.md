@@ -1,6 +1,6 @@
 # 05 — Histórias de usuário e plano de entrega incremental
 
-> Status: **v0.1** · Base: [premissas](01-premissas.md), [RF](02-requisitos-funcionais.md), [RNF](03-requisitos-nao-funcionais.md), [ADRs](adr/README.md), [contratos](contratos/README.md).
+> Status: **plano original, executado** (histórico; entregue e não entregue em [README](../README.md#limitações-conhecidas-e-próximos-passos)) · Base: [premissas](01-premissas.md), [RF](02-requisitos-funcionais.md), [RNF](03-requisitos-nao-funcionais.md), [ADRs](adr/README.md), [contratos](contratos/README.md).
 > Este documento **reorganiza** o [plano por dia](04-plano-implementacao.md) em histórias entregáveis em fatias verticais. Cada release termina com `main` verde e uma demo curta. Os requisitos não são reescritos aqui; cada história aponta para os IDs de origem.
 
 ## Como a priorização foi pensada
@@ -69,7 +69,7 @@ Isso é apertado. Pontos de decisão: se R2 não estiver verde ao fim de sex 09,
 
 ### US-03 · Avaliar regras stateless
 **Como** analista antifraude, **quero** que cada evento seja avaliado contra regras de valor, país, MCC e horário, **para** identificar transações suspeitas.
-- Motor atrás da porta `RuleEngine`, regras vindas de config tipada (sem `eval`); a troca por CEL/JSON Logic (US-21) não altera o use case.
+- Motor `DeclarativeRuleEngine` (sem porta abstrata), regras vindas do AppConfig ou do arquivo local, sem `eval`. A linguagem ficou como subconjunto de CEL com interpretador próprio (ADR-03).
 - Agregação: `severity` = maior severidade; `score` por função configurável; fuso da regra de horário e campo ausente definidos e testados.
 - Evento sem regra disparada não gera alerta (só métrica e log amostrado).
 - **Origem:** RF-10, RF-11, RF-16, RF-17, RF-18 (porta), RNF-07, RNF-50 · **Prio:** M · **Tam:** G · **Sinal:** domínio puro, testado (meta ≥ 80% de cobertura).
@@ -188,7 +188,7 @@ Isso é apertado. Pontos de decisão: se R2 não estiver verde ao fim de sex 09,
 ### US-19 · Validar regra antes de aceitar
 **Como** equipe de segurança, **quero** rejeitar regra perigosa, lenta ou não suportada, **para** que ela não degrade a detecção.
 - Sem `eval`; limites de tamanho, profundidade, operadores e custo. Regra `WINDOWED` na fase 1 → erro claro (cenário 12). Regra maliciosa/lenta → rejeitada (cenário 11).
-- **Spike do ADR-03** (CEL × JSON Logic, ≈ 30 min) decide a linguagem; vira novo adaptador de `RuleEngine`.
+- **Decidido no ADR-03:** subconjunto stateless de CEL com interpretador próprio; o spike formal CEL × JSON Logic não foi feito.
 - **Origem:** RF-26, RF-18, RNF-30 · **Prio:** M · **Tam:** G · **Sinal:** segurança do motor de expressões.
 
 ### US-20 · Aprovação separada e rollback

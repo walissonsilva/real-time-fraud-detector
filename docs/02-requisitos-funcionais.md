@@ -1,6 +1,6 @@
 # 02 — Requisitos funcionais
 
-> Status: **rascunho v0.1** · Premissas: [01-premissas.md](01-premissas.md) · Contratos: [contratos/](contratos/README.md)
+> Status: **vigente** (revisado em 12/10/2026; atendimento por requisito em [Limitações conhecidas](../README.md#limitações-conhecidas-e-próximos-passos)) · Premissas: [01-premissas.md](01-premissas.md) · Contratos: [contratos/](contratos/README.md)
 > Prioridade: **M** = Must (núcleo do desafio) · **S** = Should (entrega se houver tempo) · **C** = Could (documentado, não implementado).
 > A coluna "Origem" liga cada requisito ao enunciado.
 > **Fases (P-08):** a **fase 1** cobre as regras *stateless*; a **fase 2** (*stretch*) acrescenta a regra de velocidade. Requisitos que só existem por causa de regras com janela estão marcados "fase 2".

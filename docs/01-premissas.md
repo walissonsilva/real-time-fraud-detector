@@ -1,6 +1,6 @@
 # 01 — Premissas e escopo
 
-> Status: **rascunho v0.1** · Base: [desafio-tecnico.md](desafio-tecnico.md)
+> Status: **vigente** (revisado em 12/10/2026 após a implementação; as decisões abertas viraram os ADRs 01 a 06) · Base: [desafio-tecnico.md](desafio-tecnico.md)
 > Premissas são decisões assumidas para fechar lacunas do enunciado. Cada uma tem um ID (`P-xx`) para ser citada nos ADRs e defendida na apresentação. Se uma premissa mudar, o impacto está indicado.
 
 ## 1. Escopo
@@ -73,12 +73,12 @@
 | P-43 | O desafio entrega código executável + documentação + ADRs + testes + apresentação. Nem todo componente de produção será implementado; o que for simulado será declarado. |
 | P-44 | Enunciado: take-home de 7 dias, seguido de defesa ao vivo. Planejamento interno atualizado em 07/10/2026: **6 dias de implementação, de 07 a 12/10/2026**, conforme [plano](04-plano-implementacao.md). A data da defesa e o prazo acordado com o avaliador precisam ser confirmados separadamente. |
 
-## 6. Decisões em aberto (viram ADRs)
+## 6. Decisões tomadas (ADRs)
 
 | # | Decisão | Opções | Impacto nos contratos |
 |---|---------|--------|-----------------------|
-| [ADR-01](adr/ADR-01-mensageria.md) | Mensageria (proposto: SQS + SNS FIFO) | SQS (+SNS) · Kafka/MSK · Kinesis | Nenhum no payload; muda a chave de partição (`MessageGroupId`/partition key). |
-| [ADR-02](adr/ADR-02-dedupe-e-estado-de-janela.md) | Estado de janelas (fase 2, proposto: Redis `ZSET`) e deduplicação (fase 1, proposto: `UNIQUE` no Postgres) | Redis/ElastiCache · DynamoDB · estado local + changelog | Nenhum nos contratos. **Deduplicação** é decidida na fase 1 (restrição de unicidade no armazenamento, cache opcional). **Estado de janelas** fica adiado atrás da porta `WindowStateStore`. |
-| [ADR-03](adr/ADR-03-motor-de-regras.md) | Motor de regras (linguagem **em aberto**: CEL ou JSON Logic) | JSON Logic · CEL · DSL própria | Campo `expression` do contrato de regra. |
-| [ADR-04](adr/ADR-04-armazenamento.md) | Armazenamento de alertas/regras/auditoria (proposto: PostgreSQL) | DynamoDB · PostgreSQL | Nenhum nos contratos. |
-| [ADR-05](adr/ADR-05-estrategia-de-degradacao.md) | Estratégia de degradação (proposto) | fail-open vs fail-closed por dependência | Campo `degraded` no alerta. |
+| [ADR-01](adr/ADR-01-mensageria.md) | Mensageria (**decidido**: SQS + SNS FIFO) | SQS (+SNS) · Kafka/MSK · Kinesis | Nenhum no payload; muda a chave de partição (`MessageGroupId`/partition key). |
+| [ADR-02](adr/ADR-02-dedupe-e-estado-de-janela.md) | Estado de janelas (fase 2, desenhado e **não implementado**: Redis `ZSET`) e deduplicação (fase 1, **implementada**: `UNIQUE` no Postgres) | Redis/ElastiCache · DynamoDB · estado local + changelog | Nenhum nos contratos. **Deduplicação** é decidida na fase 1 (restrição de unicidade no armazenamento, cache opcional). **Estado de janelas** fica adiado atrás da porta `WindowStateStore`. |
+| [ADR-03](adr/ADR-03-motor-de-regras.md) | Motor de regras (**decidido**: subconjunto stateless de CEL, interpretador próprio, regras no AppConfig) | JSON Logic · CEL · DSL própria | Campo `expression` do contrato de regra (string, sem mudança). |
+| [ADR-04](adr/ADR-04-armazenamento.md) | Armazenamento de alertas e entregas (**decidido**: PostgreSQL; regras no AppConfig) | DynamoDB · PostgreSQL | Nenhum nos contratos. |
+| [ADR-05](adr/ADR-05-estrategia-de-degradacao.md) | Estratégia de degradação (**decidido**; breaker, fallback e kill switch por canal) | fail-open vs fail-closed por dependência | Campo `degraded` no alerta. |
