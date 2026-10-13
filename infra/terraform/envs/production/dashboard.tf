@@ -21,6 +21,8 @@ locals {
     [for a in aws_cloudwatch_metric_alarm.dlq_not_empty : a.arn],
     [
       aws_cloudwatch_metric_alarm.transactions_age.arn,
+      aws_cloudwatch_metric_alarm.alert_latency_p99.arn,
+      aws_cloudwatch_metric_alarm.outbox_stuck.arn,
       aws_cloudwatch_metric_alarm.ecs_cpu.arn,
       aws_cloudwatch_metric_alarm.rds_cpu.arn,
       aws_cloudwatch_metric_alarm.rds_storage.arn,

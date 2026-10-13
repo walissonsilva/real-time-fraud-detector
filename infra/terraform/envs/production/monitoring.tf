@@ -70,6 +70,65 @@ resource "aws_cloudwatch_metric_alarm" "transactions_age" {
   alarm_actions       = [aws_sns_topic.ops.arn]
 }
 
+# SLO de latência (ADR-08, RNF-03): p99 do alerta, do `ingestedAt` ao aceite do SNS, acima de 500 ms.
+# O p99 só é confiável com amostras suficientes: com menos de 20 alertas na janela de 5 min a expressão
+# devolve 0 e o alarme não dispara por causa de um único alerta lento em tráfego baixo.
+resource "aws_cloudwatch_metric_alarm" "alert_latency_p99" {
+  alarm_name          = "${var.name}-alert-latency-p99-high"
+  alarm_description   = "p99 da latência do alerta acima de ${var.alert_latency_slo_ms} ms (SLO do RNF-03), avaliado em janelas de 5 min"
+  comparison_operator = "GreaterThanThreshold"
+  threshold           = var.alert_latency_slo_ms
+  evaluation_periods  = 2
+  datapoints_to_alarm = 2
+  treat_missing_data  = "notBreaching"
+  alarm_actions       = [aws_sns_topic.ops.arn]
+
+  metric_query {
+    id          = "slo"
+    expression  = "IF(n >= 20, p99, 0)"
+    label       = "p99 da latência do alerta (ms)"
+    return_data = true
+  }
+
+  metric_query {
+    id = "p99"
+    metric {
+      namespace   = local.pipeline_metric_namespace
+      metric_name = "AlertLatencyMs"
+      period      = 300
+      stat        = "p99"
+    }
+  }
+
+  metric_query {
+    id = "n"
+    metric {
+      namespace   = local.pipeline_metric_namespace
+      metric_name = "AlertLatencyMs"
+      period      = 300
+      stat        = "SampleCount"
+    }
+  }
+}
+
+# Outbox parado (ADR-04, ADR-08): o alerta está gravado, mas não saiu para o SNS. O relay tenta a cada 1 s
+# (backoff de até 60 s por entrada), então uma entrada pendente há mais de 30 s por 2 min seguidos indica relay,
+# SNS ou banco com problema. Os gauges são atualizados a cada execução do relay; sem dados, não dispara.
+resource "aws_cloudwatch_metric_alarm" "outbox_stuck" {
+  alarm_name          = "${var.name}-outbox-oldest-pending-high"
+  alarm_description   = "Alerta pendente no outbox há mais de ${var.outbox_pending_max_age_s} s (publicação no SNS ou relay com problema)"
+  namespace           = local.pipeline_metric_namespace
+  metric_name         = "OutboxOldestPendingAgeMs"
+  statistic           = "Maximum"
+  period              = 60
+  evaluation_periods  = 2
+  datapoints_to_alarm = 2
+  threshold           = var.outbox_pending_max_age_s * 1000
+  comparison_operator = "GreaterThanThreshold"
+  treat_missing_data  = "notBreaching"
+  alarm_actions       = [aws_sns_topic.ops.arn]
+}
+
 resource "aws_cloudwatch_metric_alarm" "ecs_cpu" {
   alarm_name          = "${var.name}-ecs-cpu-high"
   namespace           = "AWS/ECS"

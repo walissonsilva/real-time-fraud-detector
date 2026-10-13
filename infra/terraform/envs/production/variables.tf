@@ -206,3 +206,15 @@ variable "rules_operator_principals" {
   type        = list(string)
   default     = []
 }
+
+variable "alert_latency_slo_ms" {
+  type        = number
+  default     = 500
+  description = "Limite do p99 da latência do alerta (RNF-03); acima dele, por 2 janelas de 5 min, o alarme dispara."
+}
+
+variable "outbox_pending_max_age_s" {
+  type        = number
+  default     = 30
+  description = "Idade máxima, em segundos, de uma entrada pendente no outbox antes do alarme."
+}

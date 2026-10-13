@@ -85,6 +85,8 @@ scripts/rules/publish-rules.sh --stop                      # para um rollout em 
 - `lean` pode ser destruído (`terraform destroy -var-file=lean.tfvars`); `full` tem deletion protection no RDS.
 
 ## Dashboard operacional (CloudWatch)
+Alarmes de SLO (`monitoring.tf`): `alert-latency-p99-high` (p99 do alerta > `alert_latency_slo_ms`, padrão 500 ms, janelas de 5 min e mínimo de 20 amostras) e `outbox-oldest-pending-high` (entrada pendente há mais de `outbox_pending_max_age_s`, padrão 30 s). Ambos publicam no tópico `<nome>-ops-alerts` e não participam do rollback automático de regras. Cuidado: um `plan` sem `image_tag` troca a imagem por `none`; informe a tag em execução.
+
 `dashboard.tf` cria o dashboard `<nome>-operacao` (URL na saída `dashboard_url`). Linhas: saúde (p99 do alerta, TPS de entrada, idade da fila, DLQs, tasks, alarmes), vazão × latência × backlog, eventos por resultado e taxa de alertas, outbox/entregas/DLQs, capacidade (ECS, RDS, Redis) e regras dinâmicas.
 
 - **Métricas da aplicação:** a linha `pipeline.metrics` (a cada 60 s, deltas e gauges) e a linha `alert.published` (uma por alerta, com `latencyMs` do `ingestedAt` ao aceite do SNS) viram métricas em `FraudDetector/Pipeline` por *metric filters* em `monitoring.tf`. A emissão depende de `RULES_METRICS_LOG=true` (já definido no ECS).
