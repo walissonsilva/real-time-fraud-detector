@@ -84,3 +84,20 @@ LOAD_TOTAL=2000 LOAD_RATE=500 npm run load   # carga leve (app rodando); alvo SC
 ```
 
 Roteiro de validação ponta a ponta (6 cenários): [specs/001-transaction-fraud-detection/quickstart.md](specs/001-transaction-fraud-detection/quickstart.md).
+
+## Limitações conhecidas e próximos passos
+
+O que ficou de fora por prazo, em ordem de impacto no resultado. Cada item tem o desenho ou o ponto de partida já registrado.
+
+| # | Melhoria | Por que agregaria | Ponto de partida |
+|---|---|---|---|
+| 1 | **Regra de velocidade (janela por conta)** | Hoje só há regras sem estado; padrões de repetição (muitas transações em pouco tempo) não são detectados. É a principal lacuna funcional | Desenho completo (`ZSET` + script Lua atômico, eventos atrasados) no [ADR-02](docs/adr/ADR-02-dedupe-e-estado-de-janela.md); o Redis já está provisionado |
+| 2 | **Validação em 8.000 TPS e rajada de 25k, com repetições** | O maior degrau medido é **4.000 TPS** (p99 de serviço de 174 ms, 0 duplicados, ECS a 49,6% e RDS a 15,9% de CPU); 8.000 TPS e 25k não foram executados porque as cotas de Fargate e de EC2 Spot (8 vCPU) e o gerador de instância única não permitem um teste válido. Repetir separa a variação do ambiente do efeito de cada mudança e revela o gargalo (Postgres ou limite do SNS FIFO) | [Plano do teste](docs/teste-de-carga-aws-1000tps.md), [runner EC2](docs/teste-de-carga-aws-runner-ec2.md) e [registro](docs/registro-testes-aws.md) |
+| 3 | **Autoscaling por backlog da fila** | O escalonamento atual segue a CPU; sob rajada, a idade da mensagem mais antiga em `transactions` reage antes e protege o SLO de 500 ms | Métrica de idade da fila já está no dashboard; a política de CPU está em `ecs.tf` |
+| 4 | **Estado do circuit breaker compartilhado entre tasks** | Cada task aprende sozinha (pior caso, 3 tasks × 5 falhas até todas abrirem) | Limite descrito no [ADR-05](docs/adr/ADR-05-estrategia-de-degradacao.md); o Redis serviria de armazenamento |
+| 5 | **Autenticação entre serviços com mTLS ou OAuth2 (RNF-22)** | Hoje a identidade é IAM/SigV4 nos serviços AWS, adequada ao desenho com filas, mas sem borda HTTP autenticada para produtores externos | [RNF-22](docs/03-requisitos-nao-funcionais.md) e [OpenAPI](docs/contratos/openapi.v1.yaml) |
+| 6 | **Provedores reais de push, SMS e do canal antifraude** | Os canais são simulados, com injeção de falha; a resiliência está provada, a integração real não | [Degradação de canais](docs/degradacao-de-canais.md) e a interface `NotificationProvider` |
+| 7 | **Retenção e expurgo de dados (LGPD)** | Não há rotina de expurgo ou anonimização das tabelas de alertas e entregas após o prazo de guarda | [Modelo de dados](docs/modelo-de-dados.md) |
+| 8 | **Cenários de caos ainda não executados na AWS** | Indisponibilidade do AppConfig em runtime, publicação deliberada de regra quebrada e divergência de revisão por 20 min foram cobertos só por teste automatizado | Achado A5 do [registro](docs/registro-testes-aws.md) |
+| 9 | **Fluxo de aprovação e auditoria das regras** | Hoje qualquer operador com permissão publica; o CloudTrail registra quem, mas não há revisão em dois passos | Gatilho de revisão do [ADR-03](docs/adr/ADR-03-motor-de-regras.md) |
+| 10 | **Limite mínimo de cobertura no CI e remoção do Redis se a fase 2 não avançar** | Evita regressão silenciosa e elimina custo e superfície de ataque sem uso | `coverage/` já é gerado; remoção descrita nos gatilhos do ADR-02 |
