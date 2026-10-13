@@ -1,6 +1,6 @@
 # ADR-06 — Outbox com CDC (Debezium + Kafka) não substitui a publicação inline com relay
 
-> Status: **proposto** · Data: 10/10/2026 · Relacionada: [ADR-01](ADR-01-mensageria.md), [ADR-04](ADR-04-armazenamento.md), [ADR-05](ADR-05-estrategia-de-degradacao.md) · Requisitos: RNF-04, RNF-12, RNF-17
+> Status: **aceito** (decisão de não adotar o CDC) · Data: 10/10/2026 · Relacionada: [ADR-01](ADR-01-mensageria.md), [ADR-04](ADR-04-armazenamento.md), [ADR-05](ADR-05-estrategia-de-degradacao.md) · Requisitos: RNF-04, RNF-12, RNF-17
 
 ## Contexto
 
@@ -32,8 +32,8 @@ O CDC tira a chamada ao SNS do caminho do consumidor, o que reduz o tempo de pro
 
 ### O problema que o CDC resolveria é pequeno aqui
 
-- Volume de alertas de 8 a 40 por segundo, até ~125 em pico (ADR-04). A publicação inline e o relay dão conta com folga.
-- O relay já existe, está testado (`relay-outbox.int-spec.ts`, `no-silent-loss.int-spec.ts`) e é simples: `FOR UPDATE SKIP LOCKED` e *backoff*.
+- Volume de alertas de 8 a 40 por segundo, até ~125 em pico (ADR-04). A publicação inline e o relay dão conta com folga até 4.000 TPS (≈ 40 alertas/s, 0 falhas de publicação medidas); a taxa de pico de projeto não foi medida (8.000 TPS não executado).
+- O relay já existe, está testado (`relay-outbox.int-spec.ts`, `no-silent-loss.int-spec.ts`) e é simples: `FOR UPDATE SKIP LOCKED` com *lease* e *backoff* exponencial.
 - A garantia de não perder alerta vem da gravação transacional, que o CDC também usa. Ele não a melhora; só muda quem publica.
 
 ### Custo e operação

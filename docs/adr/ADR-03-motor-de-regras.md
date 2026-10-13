@@ -1,28 +1,23 @@
 # ADR-03 — Motor de regras
 
-> Status: **proposto**, com a linguagem da expressão **em aberto** · Data: 07/10/2026 (revisado em 10/10/2026: fonte das regras passa a ser o AppConfig; decisões de implementação da feature 002 incorporadas) · Requisitos: RF-10, RF-11, RF-18, RF-20 a RF-23, RF-26, RF-40, RNF-07, RNF-30, RNF-40
+> Status: **aceito** · Data: 07/10/2026 (revisado em 10/10/2026: fonte das regras passa a ser o AppConfig; revisado em 12/10/2026: linguagem da expressão fechada conforme o código) · Requisitos: RF-10, RF-11, RF-18, RF-20 a RF-23, RF-26, RF-40, RNF-07, RNF-30, RNF-40
 
 ## Contexto
 
 As regras precisam ser cadastradas, alteradas e revertidas (*rollback*) **sem redeploy**, como pede o `desafio-tecnico.md` ("extensibilidade das regras sem necessidade de redeploy"). Também precisam ser avaliadas com custo baixo por evento (RNF-07) e não podem executar código arbitrário (RNF-30). O `rule.v1.schema.json` define `expression` como texto, com CEL como alvo.
 
-Hoje as regras são lidas de `config/rules.json` uma única vez, na criação do `RulesModule`, e ficam num snapshot imutável (`StaticRuleRepository`). Mudar uma regra exige rebuild e redeploy, o que contraria o enunciado. Esta revisão corrige isso.
+A primeira versão lia as regras de `config/rules.json` uma única vez, na criação do `RulesModule` (`StaticRuleRepository`), o que exigia rebuild e redeploy e contrariava o enunciado. Em produção isso foi substituído pelo AppConfig; o arquivo ficou só para desenvolvimento e testes.
 
 ## Decisão
 
 1. **Regras são dados** (`Rule v1`), avaliadas por um interpretador de expressões, **sem `eval`/`Function`**. Cada versão é compilada uma vez e mantida em memória.
-2. **Linguagem da expressão: em aberto entre CEL e JSON Logic.** Será decidida com um teste de cerca de 30 min. Critérios:
-   - custo por avaliação (meta de trabalho: abaixo de 50 µs por regra típica, a validar);
-   - limite de custo e de profundidade verificável na validação (RF-26);
-   - qualidade das mensagens de erro;
-   - maturidade da biblioteca em Node/TypeScript;
-   - impacto no contrato: CEL mantém `expression: string`; JSON Logic exige objeto e muda o `rule.v1`.
+2. **Linguagem da expressão: subconjunto *stateless* de CEL, com interpretador próprio** (`DeclarativeRuleEngine`, ~300 linhas, sem dependências). Suporta literais (número, string, booleano, lista), `tx.*` e `params.*`, `has(caminho)`, `!`, `==`, `!=`, `<`, `<=`, `>`, `>=`, `in`, `&&`, `||` e parênteses. Não há laços, chamadas de função (além de `has`) nem acesso fora de `tx` e `params`; o custo é linear no tamanho da expressão, limitado a 2.000 caracteres pelo schema. Qualquer outra raiz, inclusive `agg.*` (janela), é rejeitada na validação. O contrato mantém `expression: string`, então uma biblioteca CEL completa pode substituir o interpretador sem mudar documento nem contrato. O custo por avaliação **não foi medido** isoladamente; a latência do serviço a 1.000 TPS (p99 de 122 a 242 ms) inclui as regras.
 3. **Fonte das regras: AWS AppConfig** (*hosted configuration*), atrás da porta de repositório já existente (`loadActiveSnapshot` / `currentRevision`). Cada instância faz *polling* (`GetLatestConfiguration`, a cada 15 a 30 s) e mantém o resultado em memória. O caminho quente da transação **nunca chama o AppConfig**.
 4. **Cadastro, alteração e rollback** acontecem no AppConfig:
    - **cadastrar/alterar:** publicar uma nova versão do documento de regras e iniciar um *deployment* com uma estratégia (linear ou canary, com *bake time*);
    - **rollback:** apontar o *deployment* de volta para a versão anterior, ou deixar o AppConfig reverter sozinho quando um alarme do CloudWatch disparar durante o rollout;
    - **validação na publicação:** em três camadas (ver *Decisões de implementação*): pré-validação completa no script de publicação, validador JSON Schema **draft 4** estrutural no perfil e revalidação na instância.
-5. **Validação na instância, antes de ativar:** schema, sintaxe, custo e rejeição de `WINDOWED` na fase 1 (RF-18, RF-26), com o mesmo `loadRulesConfig` de hoje, separado do acesso a arquivo. O conjunto novo é compilado e **trocado de uma vez** (troca atômica do snapshot).
+5. **Validação na instância, antes de ativar:** schema, sintaxe e rejeição de regras com estado/janela (`WINDOWED` não é suportado: a fase 2 não foi implementada, ver [ADR-02](ADR-02-dedupe-e-estado-de-janela.md)), com o mesmo `loadRulesConfig` usado para o arquivo local. O conjunto novo é compilado e **trocado de uma vez** (troca atômica do snapshot).
 6. **Falhas: fail-fast na partida, última versão válida em execução.**
    - **Startup:** a instância tenta obter a configuração com *retry* e *backoff* (cerca de 30 a 60 s). Se não conseguir, **não sobe**, na mesma linha do FR-014b. Não há fallback para o arquivo embutido na imagem em produção.
    - **Runtime:** se o *polling* falhar, o conteúdo for inválido ou o AppConfig estiver fora, a instância **mantém o último snapshot válido** (RF-40), registra o motivo (apenas `ruleId` e regra violada, sem valores) e segue operando.
@@ -121,10 +116,12 @@ flowchart TD
 
 | Alternativa | Por que não |
 |-------------|-------------|
-| Regras no Postgres com contador de revisão e *polling* (decisão anterior deste ADR) | Exige modelar tabela, versionamento, rollback e a ferramenta de cadastro à mão. O AppConfig entrega versões, rollout gradual, rollback e validação prontos, e o ambiente já está na AWS |
+| Regras no Postgres com contador de revisão e *polling* (decisão anterior deste ADR, implementada e depois removida na migração 003) | Exige modelar tabela, versionamento, rollback e a ferramenta de cadastro à mão. O AppConfig entrega versões, rollout gradual, rollback e validação prontos, e o ambiente já está na AWS |
 | Arquivo embutido como fallback em produção | A imagem fica congelada no build e diverge do AppConfig. Após endurecer uma regra, o fallback voltaria silenciosamente às regras antigas, o pior caso em detecção de fraude. Contraria também o fail-fast do FR-014b |
 | Flag de emergência `RULES_FALLBACK_FILE` | Só se justifica se houver um cenário em que subir com regras antigas seja melhor que não subir. Não há hoje; fica como evolução, desligada por padrão e com alerta visível |
-| DSL própria | Custo de parser e de segurança sem ganho para o desafio |
+| JSON Logic | Muda o contrato (`expression` passaria a objeto), é menos legível para o analista e não traz limite de custo próprio |
+| Biblioteca CEL completa | Mais recursos do que o necessário (funções, macros, tipos) e mais superfície a auditar. Fica como evolução, atrás do mesmo contrato |
+| DSL totalmente nova | Custo de parser e de segurança sem ganho; o subconjunto de CEL já dá sintaxe conhecida |
 | Regras como código | Exige redeploy; contraria o enunciado |
 
 ## Consequências
@@ -139,4 +136,4 @@ flowchart TD
 
 ## Gatilhos de revisão
 
-Resultado do teste de linguagem; necessidade de fluxo de aprovação e auditoria completa (avaliar uma camada de gestão sobre o AppConfig, com Postgres para rascunho e trilha); cenário real que justifique a flag de fallback; regras de janela mais complexas (função `distanceKm`, agregação `LAST`).
+Necessidade de funções ou tipos fora do subconjunto atual (aí avaliar a biblioteca CEL completa); necessidade de fluxo de aprovação e auditoria completa (avaliar uma camada de gestão sobre o AppConfig, com Postgres para rascunho e trilha); cenário real que justifique a flag de fallback; regras de janela mais complexas (função `distanceKm`, agregação `LAST`).
