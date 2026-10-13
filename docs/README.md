@@ -31,8 +31,8 @@ Resposta ao case **CE 1** (take-home de 7 dias, defesa ao vivo). Esta pasta guar
 
 Próximos passos (o que ficou de fora e por quê) estão em [Limitações conhecidas e próximos passos](../README.md#limitações-conhecidas-e-próximos-passos), no README do repositório. Os que pedem decisão de documentação:
 
-1. Registrar o resultado do teste de 8.000 TPS (e da rajada de 25k) no [registro](registro-testes-aws.md) e refletir nos ADR-01 e ADR-04.
-2. Fechar as lacunas listadas nos [ADR-07](adr/ADR-07-seguranca-autenticacao-e-lgpd.md#lacunas-conhecidas) e [ADR-08](adr/ADR-08-observabilidade-e-slos.md#lacunas-conhecidas) que couberem no prazo (a mais barata e de maior efeito: alarme do SLO de latência).
+1. Testes de 8.000 TPS e da rajada de 25k: **não executados** (cotas de Fargate e do gerador k6). O degrau de 4.000 TPS foi medido e aprovado em 13/10/2026; ver o [registro](registro-testes-aws.md) (achados A9 a A11) e os ADR-01 e ADR-04.
+2. Fechar as lacunas listadas nos [ADR-07](adr/ADR-07-seguranca-autenticacao-e-lgpd.md#lacunas-conhecidas) e [ADR-08](adr/ADR-08-observabilidade-e-slos.md#lacunas-conhecidas) que couberem no prazo. O alarme do SLO de latência e o do *outbox* já estão ativos; restam, por exemplo, o alarme de *circuit breaker* aberto e os *runbooks*.
 
 ## Rastreabilidade
 
