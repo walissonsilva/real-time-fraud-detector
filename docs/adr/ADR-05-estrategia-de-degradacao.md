@@ -36,6 +36,23 @@ O motor é assíncrono e não bloqueante (P-01): perder detecção em silêncio 
 - Durante uma queda do Postgres, o *lag* da fila cresce, mas os eventos não são perdidos nem passam para a DLQ por tentativas esgotadas, graças ao recuo e ao `maxReceiveCount` alto.
 - Alertas de regras de janela em modo degradado têm menos precisão e vêm marcados para o analista.
 
+## Adendo (2026-10-12): circuit breaker, fallback de canal e kill switch implementados
+
+Como ficou na entrega de alertas (`DeliverAlertService`, `src/shared/circuit-breaker.ts`). Diagramas de estados, fluxo de decisão e todos os cenários: [degradacao-de-canais.md](../degradacao-de-canais.md).
+
+| Aspecto | Decisão |
+|---------|---------|
+| **Breaker** | Um por canal (`ANTIFRAUD_QUEUE`, `PUSH`, `SMS`), por falhas **consecutivas** (`CHANNEL_BREAKER_FAILURE_THRESHOLD`, padrão 5). Aberto por `CHANNEL_BREAKER_OPEN_MS` (30 s); depois deixa passar **uma** sonda (meio-aberto): sucesso fecha, falha reabre. Relógio monotônico. |
+| **Escopo do estado** | Em memória, **por task**. Cada instância aprende sozinha (no pior caso, 3 tasks × 5 falhas). Estado compartilhado (Redis) fica como evolução; a vantagem é não criar dependência nova no caminho da entrega. |
+| **Com breaker aberto** | Falha rápida, sem espera de backoff e sem tocar o provedor. |
+| **Fallback** | Só no canal do cliente: `PUSH` → `SMS`, com `deliveryId` próprio (`sha256(alertId + ":SMS")`) e o mesmo conteúdo mínimo, sem PII. A linha do SMS só nasce quando ele entrega; o push fica `FALLBACK_DELIVERED`. O antifraude não tem fallback (o contrato proíbe cliente em canal interno e vice-versa). |
+| **Sem entrega e breaker aberto** | Resultado `DEFERRED`: a mensagem **não** vai à DLQ; o consumidor ajusta a visibilidade (`ChangeMessageVisibility`) para o fim do cooldown e a fila drena sozinha na recuperação. |
+| **Vai à DLQ** | (a) retentativas esgotadas com o breaker ainda fechado (`MAX_RETRIES_EXCEEDED`); (b) alerta vencido, `detectedAt` + 10 min sem entrega (`DELIVERY_EXPIRED`). |
+| **Kill switch** | `CHANNEL_<ANTIFRAUD|CUSTOMER|SMS>_DISABLED=true` força o breaker aberto: o push cai direto no SMS, o antifraude fica adiado. É variável do serviço ECS: **exige novo deployment do serviço** (rolling update de ~2 min, sem build nem deploy de código). O corte instantâneo, sem reiniciar tasks, seria um perfil de feature flag no AppConfig (mesmo mecanismo das regras): não implementado. |
+| **Observabilidade** | Gauge `circuit_breaker_state{channel}` (0/1/2) e `circuit_breaker_transitions_total` em `/metrics`; `deliveries_total{status=fallback\|deferred}`; no CloudWatch: `BreakerAntifraud/Push/Sms`, `DeliveriesFallback`, `DeliveriesDeferred` e dois widgets no dashboard. |
+
+Limites assumidos: com o fallback ativo e o antifraude indisponível por muito tempo (> 10 min), os alertas vencem e vão à DLQ do canal, para reprocesso manual; a ordem por conta (grupo FIFO) é preservada, então uma mensagem adiada segura as seguintes do mesmo grupo até voltar.
+
 ## Gatilhos de revisão
 
 Se o motor passar a bloquear transações (P-01 cai), o desenho muda para API síncrona com política *fail-closed* ou *fail-open* explícita e SLO bem mais baixo.

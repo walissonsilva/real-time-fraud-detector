@@ -93,6 +93,9 @@ scripts/rules/publish-rules.sh --stop                      # para um rollout em 
 - **Container Insights** fica ligado também no `lean` (nº de tasks e alarme de tasks abaixo do desejado).
 - SQS/RDS chegam com 1 a 5 min de atraso; os números finais do teste vêm do relatório do k6.
 
+## Kill switch de canal (sem deploy de código)
+As variáveis `CHANNEL_ANTIFRAUD_DISABLED`, `CHANNEL_CUSTOMER_DISABLED` e `CHANNEL_SMS_DISABLED` (em `ecs.tf`) forçam o circuit breaker do canal aberto: o push cai no SMS; os demais canais ficam com a entrega adiada na fila (sem DLQ) até religar. Para acionar, mude o valor para `"true"` e rode `terraform apply` (rolling update das tasks, ~2 min). Acompanhe no dashboard (widgets *Circuit breaker por canal* e *Fallback e entregas adiadas*). Corte instantâneo sem reiniciar tasks exigiria um perfil de feature flag no AppConfig (evolução).
+
 ## Teste de carga
 O teste de carga k6 na AWS roda com `scripts/loadtest.sh <lean|full>` (skill `/aws-loadtest`): publica a imagem do k6 no ECR (`load/k6/Dockerfile`), aplica `loadtest.tfvars` (serviço On-Demand + `enable_loadtest`), roda o smoke e a execução principal em task Fargate na VPC, grava resumo/HTML em `load/k6/results/`, avalia os critérios e reverte o override. Ver `docs/teste-de-carga-aws-1000tps.md`.
 

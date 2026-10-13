@@ -42,8 +42,8 @@ transactions (SQS) ─▶ valida (TransactionEvent v1) ─┬─ inválido ─�
                                                                       │ publicação imediata + relay de pendentes
                                                                       ▼
                                                SNS FIFO alerts.fifo (grupo = accountId, dedupe = dedupeKey)
-                                   ├─▶ SQS FIFO alert-deliveries-antifraud-queue.fifo ─▶ canal interno ─ falha ─▶ DLQ do canal
-                                   └─▶ SQS FIFO alert-deliveries-customer-push.fifo   ─▶ canal cliente ─ falha ─▶ DLQ do canal
+                                   ├─▶ SQS FIFO alert-deliveries-antifraud-queue.fifo ─▶ canal interno ─ breaker aberto ─▶ adia na fila; esgotou/venceu ─▶ DLQ
+                                   └─▶ SQS FIFO alert-deliveries-customer-push.fifo   ─▶ push ─ falha ─▶ SMS (fallback); sem alternativa ─▶ adia / DLQ
 ```
 
 - **Um alerta por transação**: `dedupeKey = sha256("fraud-alert:v1:" + transactionId)`; reentrega e concorrência não geram segundo alerta.
@@ -61,9 +61,17 @@ transactions (SQS) ─▶ valida (TransactionEvent v1) ─┬─ inválido ─�
 - **Produção (AWS):** o padrão é `RULES_SOURCE=appconfig`. As regras vêm do AWS AppConfig, são alteradas e revertidas **sem redeploy** com `scripts/rules/publish-rules.sh` e o arquivo embutido na imagem **não é lido**. Na partida, sem uma configuração válida em ~45 s o serviço não sobe; em execução, uma falha do AppConfig mantém a última revisão válida. Operação e detalhes em [infra/terraform/README.md](infra/terraform/README.md) e em [specs/002-appconfig-dynamic-rules](specs/002-appconfig-dynamic-rules/spec.md).
 - O ambiente local não usa AWS: `npm run infra:up`, `npm test` e `npm run test:int` funcionam sem o AppConfig.
 
-### Simular falha de canal
+### Falha de canal: circuit breaker, fallback e kill switch
 
-`CHANNEL_CUSTOMER_FAIL=true` (ou `CHANNEL_ANTIFRAUD_FAIL=true`) faz o provedor simulado falhar; as entregas esgotam as tentativas e vão à DLQ do canal.
+Cada canal tem um circuit breaker (por task) por trás do retry. Com o provedor do cliente fora, o alerta sai por **SMS** (fallback do push, `deliveryId` próprio); sem alternativa e com o breaker aberto, a entrega é **adiada** na fila (não vai à DLQ) e drena na recuperação; só retentativas esgotadas com o breaker fechado, ou alerta vencido (10 min), vão à DLQ do canal. Diagramas e cenários: [docs/degradacao-de-canais.md](docs/degradacao-de-canais.md). Decisões e limites: [ADR-05](docs/adr/ADR-05-estrategia-de-degradacao.md#adendo-2026-10-12-circuit-breaker-fallback-de-canal-e-kill-switch-implementados).
+
+| Variável | Efeito |
+|---|---|
+| `CHANNEL_CUSTOMER_FAIL`, `CHANNEL_SMS_FAIL`, `CHANNEL_ANTIFRAUD_FAIL` | Injeta falha no provedor simulado (demonstração/testes) |
+| `CHANNEL_BREAKER_FAILURE_THRESHOLD` / `CHANNEL_BREAKER_OPEN_MS` | Falhas consecutivas que abrem o breaker (5) e tempo aberto antes da sonda (30000 ms) |
+| `CHANNEL_CUSTOMER_DISABLED`, `CHANNEL_SMS_DISABLED`, `CHANNEL_ANTIFRAUD_DISABLED` | Kill switch: força o breaker do canal aberto (push → SMS; os demais ficam adiados). Na AWS, variável do serviço ECS: pede novo deployment do serviço, sem deploy de código |
+
+Roteiro de demonstração local: suba o app, ponha `CHANNEL_CUSTOMER_FAIL=true`, gere alertas (`npm run load`) e observe em `/metrics` `circuit_breaker_state{channel="PUSH"} 2`, `deliveries_total{channel="PUSH",status="fallback"}` e o SMS em `deliveries`; com `CHANNEL_SMS_FAIL=true` também, aparece `status="deferred"` sem mensagens na DLQ; ao remover as falhas a fila drena em ~30 s. A cobertura automatizada está em `test/channel-delivery.e2e-spec.ts`.
 
 ## Testes
 

@@ -18,6 +18,7 @@ Resposta ao case **CE 1** (take-home de 7 dias, defesa ao vivo). Esta pasta guar
 | 9 | [teste-de-carga-aws-1000tps.md](teste-de-carga-aws-1000tps.md) | Plano do teste de carga k6 a 1.000 TPS na AWS e critérios de avaliação | plano (não implementado) |
 | 10 | [registro-testes-aws.md](registro-testes-aws.md) | Registro resumido dos testes (carga e simples) executados na AWS, com métricas | vivo |
 | 11 | [modelo-de-dados.md](modelo-de-dados.md) | Diagrama entidade-relacionamento das tabelas do Postgres (alertas, outbox, entregas) | vivo |
+| 12 | [degradacao-de-canais.md](degradacao-de-canais.md) | Circuit breaker, fallback push → SMS, adiamento e kill switch: diagramas e todos os cenários | pronto |
 
 ## Escopo em fases (P-08)
 
