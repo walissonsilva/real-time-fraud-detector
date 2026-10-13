@@ -9,7 +9,7 @@ import {
 } from '@aws-sdk/client-sqs';
 import { NotificationProvider } from './notification-provider';
 import { DeliverAlertService } from './deliver-alert.service';
-import { FraudAlert } from '../alerts/fraud-alert';
+import { FraudAlert } from '../alerts/types/fraud-alert';
 import { buildDlqMessage } from '../dlq/dlq-message';
 import { safeError } from '../observability/logger';
 import { JsonLogger } from '../observability/logger';

@@ -1,7 +1,7 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { CreateTopicCommand, PublishCommand, SNSClient } from '@aws-sdk/client-sns';
 import { retry } from '../shared/retry';
-import { PublishableFraudAlert, FraudAlert } from './fraud-alert';
+import { PublishableFraudAlert, FraudAlert } from './types/fraud-alert';
 import { APP_CONFIG, AppConfig } from '../config/config.module';
 import { SNS_CLIENT } from '../aws/aws-clients.module';
 

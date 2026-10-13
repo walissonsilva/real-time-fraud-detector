@@ -10,9 +10,9 @@ import {
   SQSClient,
 } from '@aws-sdk/client-sqs';
 import { Pool } from 'pg';
-import { FraudAlert } from '../../src/alerts/fraud-alert';
+import { FraudAlert } from '../../src/alerts/types/fraud-alert';
 import { dedupeKeyOf } from '../../src/alerts/dedupe-key';
-import { IngestedEvent, TransactionEvent } from '../../src/transactions/transaction-event';
+import { IngestedEvent, TransactionEvent } from '../../src/transactions/types/transaction-event';
 
 const contracts = join(__dirname, '../../docs/contratos');
 export const readExample = (rel: string) => JSON.parse(readFileSync(join(contracts, 'examples', rel), 'utf8'));

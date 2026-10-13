@@ -4,7 +4,7 @@ import Ajv2020 from 'ajv/dist/2020';
 import type { ValidateFunction } from 'ajv';
 import addFormats from 'ajv-formats';
 import { DeclarativeRuleEngine } from './declarative-rule-engine';
-import { Rule } from './rule';
+import { Rule } from './types/rule';
 
 const RULE_SCHEMA_PATH = join(__dirname, '../../docs/contratos/rule.v1.schema.json');
 

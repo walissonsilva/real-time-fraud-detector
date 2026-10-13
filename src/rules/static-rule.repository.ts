@@ -1,4 +1,4 @@
-import { Rule } from './rule';
+import { Rule } from './types/rule';
 import type { RuleRepository } from './rule-source';
 
 export interface RuleSnapshot {

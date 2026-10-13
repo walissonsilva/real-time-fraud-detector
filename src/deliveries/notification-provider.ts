@@ -1,5 +1,5 @@
-import { AlertDelivery, DeliveryAudience, DeliveryChannel } from './alert-delivery';
-import { FraudAlert } from '../alerts/fraud-alert';
+import { AlertDelivery, DeliveryAudience, DeliveryChannel } from './types/alert-delivery';
+import { FraudAlert } from '../alerts/types/fraud-alert';
 
 /** Pedido de entrega + alerta de origem. Cada provedor decide o que do alerta pode sair pelo canal (FR-025). */
 export interface Notification {

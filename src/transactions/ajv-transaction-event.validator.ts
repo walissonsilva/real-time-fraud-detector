@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import Ajv2020 from 'ajv/dist/2020';
 import type { ErrorObject, ValidateFunction } from 'ajv/dist/2020';
 import addFormats from 'ajv-formats';
-import { TransactionEvent } from './transaction-event';
+import { TransactionEvent } from './types/transaction-event';
 
 const SCHEMA_PATH = join(__dirname, '../../docs/contratos/transaction-event.v1.schema.json');
 const SUPPORTED_MAJOR = 1;

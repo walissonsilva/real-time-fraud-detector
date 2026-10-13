@@ -1,5 +1,5 @@
-import { Severity } from '../rules/rule';
-import { TriggeredRule } from './fraud-alert';
+import { Severity } from '../rules/types/rule';
+import { TriggeredRule } from './types/fraud-alert';
 
 export interface FraudDecision {
   readonly suspicious: boolean;

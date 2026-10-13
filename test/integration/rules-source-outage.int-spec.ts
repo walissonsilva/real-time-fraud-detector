@@ -1,5 +1,5 @@
 import { AlertRepository, OutboxEntry } from '../../src/alerts/alert.repository';
-import { FraudAlert } from '../../src/alerts/fraud-alert';
+import { FraudAlert } from '../../src/alerts/types/fraud-alert';
 import { OutboxEntryPublisherService } from '../../src/alerts/outbox-entry-publisher.service';
 import { SnsEventBus } from '../../src/alerts/sns-event-bus';
 import { JsonLogger } from '../../src/observability/logger';
@@ -8,7 +8,7 @@ import { AppConfigRuleRepository } from '../../src/rules/appconfig-rule.reposito
 import { DeclarativeRuleEngine } from '../../src/rules/declarative-rule-engine';
 import { ConfigClientError, ConfigPollResult, RuleConfigClient } from '../../src/rules/rule-source';
 import { ProcessTransactionService } from '../../src/transactions/process-transaction.service';
-import { IngestedEvent, TransactionEvent } from '../../src/transactions/transaction-event';
+import { IngestedEvent, TransactionEvent } from '../../src/transactions/types/transaction-event';
 import { readExample } from './support';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';

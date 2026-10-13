@@ -13,7 +13,7 @@ import {
 import Ajv2020 from 'ajv/dist/2020';
 import addFormats from 'ajv-formats';
 import { Pool } from 'pg';
-import { FraudAlert } from '../../src/alerts/fraud-alert';
+import { FraudAlert } from '../../src/alerts/types/fraud-alert';
 import { AlertRepository } from '../../src/alerts/alert.repository';
 
 const contracts = join(__dirname, '../../docs/contratos');

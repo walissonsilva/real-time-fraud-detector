@@ -11,7 +11,7 @@ import {
 import { ProcessTransactionService, ProcessingError } from './process-transaction.service';
 import { RejectInvalidEventService } from './reject-invalid-event.service';
 import { buildDlqMessage, DlqStage } from '../dlq/dlq-message';
-import { IngestedEvent } from './transaction-event';
+import { IngestedEvent } from './types/transaction-event';
 import { safeError } from '../observability/logger';
 import { SQS_CLIENT } from '../aws/aws-clients.module';
 import { APP_CONFIG, AppConfig } from '../config/config.module';

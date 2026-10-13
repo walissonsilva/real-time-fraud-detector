@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
-import { Rule } from './rule';
-import { TransactionEvent } from '../transactions/transaction-event';
+import { Rule } from './types/rule';
+import { TransactionEvent } from '../transactions/types/transaction-event';
 
 export interface RuleMatch {
   readonly rule: Rule;

@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { DeliveryChannel } from './alert-delivery';
+import { DeliveryChannel } from './types/alert-delivery';
 
 /** sha256("alert-delivery:v1:" + alertId + ":" + canal): estável entre retentativas (FR-024). */
 export function deliveryIdOf(alertId: string, channel: DeliveryChannel): string {

@@ -4,7 +4,7 @@ import { ConfigPollResult, RuleConfigClient } from '../../src/rules/rule-source'
 import { JsonLogger } from '../../src/observability/logger';
 import { InMemoryMetrics } from '../../src/observability/metrics';
 import { readExample } from './support';
-import { TransactionEvent } from '../../src/transactions/transaction-event';
+import { TransactionEvent } from '../../src/transactions/types/transaction-event';
 
 const doc = (ruleId: string, limit: number) =>
   JSON.stringify({

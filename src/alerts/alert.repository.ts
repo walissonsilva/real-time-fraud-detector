@@ -1,6 +1,6 @@
 import { Inject, Injectable } from '@nestjs/common';
 import type { Pool } from 'pg';
-import { FraudAlert } from './fraud-alert';
+import { FraudAlert } from './types/fraud-alert';
 import { PG_POOL } from '../database/pg-pool.token';
 
 /** Linha pendente do outbox: o alerta a publicar e o contexto de rastreamento. */

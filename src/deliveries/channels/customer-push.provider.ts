@@ -1,6 +1,6 @@
 import { Notification, NotificationProvider } from '../notification-provider';
-import { AlertDelivery } from '../alert-delivery';
-import { FraudAlert } from '../../alerts/fraud-alert';
+import { AlertDelivery } from '../types/alert-delivery';
+import { FraudAlert } from '../../alerts/types/fraud-alert';
 import { DELIVERY_TTL_MS } from './antifraud-queue.provider';
 import { JsonLogger } from '../../observability/logger';
 

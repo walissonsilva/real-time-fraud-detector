@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { PublishableFraudAlert } from './fraud-alert';
+import { PublishableFraudAlert } from './types/fraud-alert';
 import { JsonLogger } from '../observability/logger';
 import { InMemoryMetrics } from '../observability/metrics';
 import { AlertRepository, OutboxEntry } from './alert.repository';

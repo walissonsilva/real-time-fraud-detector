@@ -1,6 +1,6 @@
 import { Notification, NotificationProvider } from '../notification-provider';
-import { AlertDelivery } from '../alert-delivery';
-import { FraudAlert } from '../../alerts/fraud-alert';
+import { AlertDelivery } from '../types/alert-delivery';
+import { FraudAlert } from '../../alerts/types/fraud-alert';
 import { JsonLogger } from '../../observability/logger';
 
 export const DELIVERY_TTL_MS = 10 * 60 * 1000;
