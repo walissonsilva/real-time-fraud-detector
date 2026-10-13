@@ -82,6 +82,11 @@ nav:
           - "ADR-07 Segurança e LGPD": adr/ADR-07-seguranca-autenticacao-e-lgpd.md
           - "ADR-08 Observabilidade e SLOs": adr/ADR-08-observabilidade-e-slos.md
       - Contratos: contratos/README.md
+  - Observabilidade:
+      - observabilidade/index.md
+      - Métricas: observabilidade/metricas.md
+      - Alarmes: observabilidade/alarmes.md
+      - Dashboard: observabilidade/dashboard.md
   - Testes e operação:
       - Registro dos testes na AWS: registro-testes-aws.md
       - Carga a 1.000 TPS: teste-de-carga-aws-1000tps.md
