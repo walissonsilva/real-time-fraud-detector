@@ -49,7 +49,7 @@ flowchart LR
 
     subgraph VPC[VPC - subnets privadas]
         K6[Task Fargate k6<br/>2 vCPU / 4 GB<br/>producer + consumer]
-        APP[Serviço ECS fraud-detector<br/>3 a 6 tasks Fargate On-Demand (override do teste)]
+        APP["Serviço ECS fraud-detector<br/>3 a 6 tasks Fargate On-Demand (override do teste)"]
         PG[(RDS Postgres<br/>alerts, outbox, deliveries)]
         RD[(ElastiCache Redis)]
     end
