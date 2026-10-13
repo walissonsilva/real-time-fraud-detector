@@ -68,6 +68,7 @@ nav:
       - Matriz de conformidade: matriz-de-conformidade.md
   - Arquitetura:
       - Fluxo de processamento: fluxo-processamento.md
+      - Elementos na AWS: arquitetura-aws.md
       - Modelo de dados: modelo-de-dados.md
       - Degradação de canais: degradacao-de-canais.md
       - ADRs:
@@ -84,6 +85,7 @@ nav:
   - Testes e operação:
       - Registro dos testes na AWS: registro-testes-aws.md
       - Carga a 1.000 TPS: teste-de-carga-aws-1000tps.md
+      - Carga a 4.000 TPS (resultados): teste-de-carga-aws-4000tps.md
       - Runner EC2 para carga: teste-de-carga-aws-runner-ec2.md
   - Histórico:
       - Plano de implementação: 04-plano-implementacao.md

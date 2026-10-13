@@ -20,6 +20,8 @@ Resposta ao case **CE 1** (take-home de 7 dias, defesa ao vivo). Esta pasta guar
 | 11 | [modelo-de-dados.md](modelo-de-dados.md) | Diagrama entidade-relacionamento das tabelas do Postgres (alertas, outbox, entregas) | vivo |
 | 12 | [degradacao-de-canais.md](degradacao-de-canais.md) | Circuit breaker, fallback push → SMS, adiamento e kill switch: diagramas e todos os cenários | pronto |
 | 13 | [matriz-de-conformidade.md](matriz-de-conformidade.md) | Cada RF e RNF com situação (atendido, parcial, não atendido, não medido) e evidência | vivo |
+| 14 | [teste-de-carga-aws-4000tps.md](teste-de-carga-aws-4000tps.md) | Resultado do teste de carga a 4.000 TPS na AWS: critérios, latência, recursos e comparação com 1.000 TPS | executado (13/10/2026) |
+| 15 | [arquitetura-aws.md](arquitetura-aws.md) | Elementos da arquitetura na AWS (SQS, ECS, RDS, SNS, AppConfig e demais), com o desenho e os parâmetros dos perfis `lean` e `full` | pronto |
 
 ## Escopo em fases (P-08)
 
