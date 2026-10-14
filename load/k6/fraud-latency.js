@@ -3,8 +3,10 @@
  * chegar a uma assinante do tópico SNS `alerts.fifo`. Roda contra o LocalStack (AWS_ENDPOINT definido,
  * `npm run load:k6`) ou contra a AWS real, em uma task Fargate na VPC (`infra/terraform/scripts/loadtest.sh`).
  *
- * - `producer`: taxa de eventos (RATE/s, um SendMessage por evento) na fila SQS, com aquecimento opcional
- *   (WARMUP_SECONDS) até a taxa-alvo; só ALERT_RATE deles são suspeitos.
+ * - `producer`: taxa de eventos (RATE/s) na fila SQS, com aquecimento opcional (WARMUP_SECONDS) até a
+ *   taxa-alvo; só ALERT_RATE deles são suspeitos. Com BATCH_SIZE=1 (padrão) é um SendMessage por evento;
+ *   com BATCH_SIZE>1, um SendMessageBatch por lote (até 10), o que reduz as chamadas HTTP e a CPU do
+ *   gerador. As mensagens entram na fila individualmente: o consumer não percebe a diferença.
  * - `consumer`: lê uma fila FIFO assinante do tópico (criada pelo `setup()` no LocalStack ou pelo
  *   loadtest.sh na AWS, via SINK_QUEUE_URL) e calcula latência = recebimento do alerta -
  *   `transactionOccurredAt` (que o produtor carimba com o instante do envio). Também conta duplicados.
@@ -42,9 +44,14 @@ const DURATION_S = Number(__ENV.DURATION_SECONDS || 600);
 const WARMUP_S = Number(__ENV.WARMUP_SECONDS || 0);
 const WARMUP_START_RATE = Math.min(RATE, Number(__ENV.WARMUP_START_RATE || 200));
 const DRAIN_S = Number(__ENV.DRAIN_SECONDS || 30);
+const BATCH_SIZE = Number(__ENV.BATCH_SIZE || 1); // eventos por SendMessageBatch (1 = SendMessage; máx. 10)
 const ALERT_RATE = Number(__ENV.ALERT_RATE || 0.01);
 const ACCOUNTS = Number(__ENV.ACCOUNTS || 500);
-const MAX_VUS = Number(__ENV.MAX_VUS || Math.max(200, Math.ceil(RATE / 2)));
+if (!Number.isInteger(BATCH_SIZE) || BATCH_SIZE < 1 || BATCH_SIZE > 10) throw new Error('BATCH_SIZE deve ser inteiro entre 1 e 10');
+if (RATE % BATCH_SIZE !== 0) throw new Error(`RATE (${RATE}) deve ser múltiplo de BATCH_SIZE (${BATCH_SIZE})`);
+// O executor conta iterações (um envio por iteração); cada uma carrega BATCH_SIZE eventos.
+const ITER_RATE = RATE / BATCH_SIZE;
+const MAX_VUS = Number(__ENV.MAX_VUS || Math.max(200, Math.ceil(ITER_RATE / 2)));
 const P95_MS = Number(__ENV.P95_MS || 500);
 const P99_MS = Number(__ENV.P99_MS || 500);
 const RESULTS_MODE = __ENV.RESULTS_MODE || 'file';
@@ -60,18 +67,18 @@ const e2eLatency = new Trend('alert_e2e_latency_ms', true);
 const serviceLatency = new Trend('alert_service_latency_ms', true);
 
 const stages = [];
-if (WARMUP_S > 0) stages.push({ duration: `${WARMUP_S}s`, target: RATE });
-stages.push({ duration: `${DURATION_S}s`, target: RATE });
+if (WARMUP_S > 0) stages.push({ duration: `${WARMUP_S}s`, target: ITER_RATE });
+stages.push({ duration: `${DURATION_S}s`, target: ITER_RATE });
 
 export const options = {
   summaryTrendStats: ['avg', 'min', 'med', 'p(90)', 'p(95)', 'p(99)', 'max'],
   scenarios: {
     producer: {
       executor: 'ramping-arrival-rate',
-      startRate: WARMUP_S > 0 ? WARMUP_START_RATE : RATE,
+      startRate: WARMUP_S > 0 ? Math.max(1, Math.round(WARMUP_START_RATE / BATCH_SIZE)) : ITER_RATE,
       timeUnit: '1s',
       stages,
-      preAllocatedVUs: Math.min(MAX_VUS, Math.max(20, Math.ceil(RATE / 10))),
+      preAllocatedVUs: Math.min(MAX_VUS, Math.max(20, Math.ceil(ITER_RATE / 10))),
       maxVUs: MAX_VUS,
       exec: 'produce',
     },
@@ -201,12 +208,12 @@ function pickRecipe() {
   return SUSPECT_RECIPES[0];
 }
 
-function buildEvent(runId, suspect) {
+function buildEvent(runId, suspect, seq) {
   const n = Math.floor(Math.random() * ACCOUNTS);
   const event = {
     schemaVersion: '1.0',
     eventId: uuidv4(),
-    transactionId: `k6-${runId}-${exec.scenario.iterationInTest}`,
+    transactionId: `k6-${runId}-${seq}`,
     eventType: 'TRANSACTION_AUTHORIZED',
     occurredAt: new Date().toISOString(), // reaparece em transactionOccurredAt: base da latência
     producer: 'k6-load',
@@ -260,17 +267,37 @@ export function setup() {
 }
 
 export function produce(data) {
-  const suspect = Math.random() < ALERT_RATE;
-  const event = buildEvent(data.runId, suspect);
-  const res = sqs(data.creds, 'SendMessage', { QueueUrl: data.txUrl, MessageBody: JSON.stringify(event) });
-  const ok = check(res, { 'SendMessage 200': (r) => r.status === 200 });
-  sendErrors.add(!ok);
-  if (ok) {
-    sendLatency.add(res.timings.duration);
+  // Os eventos do lote são montados juntos, logo antes do envio, para que `occurredAt` (base da latência)
+  // seja o instante do envio e não inclua a espera do lote.
+  const iter = exec.scenario.iterationInTest;
+  const events = [];
+  for (let i = 0; i < BATCH_SIZE; i++) {
+    const suspect = Math.random() < ALERT_RATE;
+    events.push({ suspect, body: JSON.stringify(buildEvent(data.runId, suspect, `${iter}-${i}`)) });
+  }
+  const res =
+    BATCH_SIZE === 1
+      ? sqs(data.creds, 'SendMessage', { QueueUrl: data.txUrl, MessageBody: events[0].body })
+      : sqs(data.creds, 'SendMessageBatch', {
+          QueueUrl: data.txUrl,
+          Entries: events.map((e, i) => ({ Id: String(i), MessageBody: e.body })),
+        });
+  const ok = check(res, { [`${BATCH_SIZE === 1 ? 'SendMessage' : 'SendMessageBatch'} 200`]: (r) => r.status === 200 });
+  // SendMessageBatch responde 200 mesmo com entradas rejeitadas: o resultado vem por entrada.
+  let sent = ok ? events.map(() => true) : events.map(() => false);
+  if (ok && BATCH_SIZE > 1) {
+    const failed = new Set((res.json('Failed') || []).map((f) => f.Id));
+    sent = events.map((_, i) => !failed.has(String(i)));
+  }
+  sent.forEach((accepted, i) => {
+    sendErrors.add(!accepted);
+    if (!accepted) return;
     eventsSent.add(1);
-    if (suspect) alertsExpected.add(1);
-  } else if (exec.scenario.iterationInTest % 100 === 0) {
-    console.error(`SendMessage falhou: ${res.status} ${String(res.body).slice(0, 200)}`);
+    if (events[i].suspect) alertsExpected.add(1);
+  });
+  if (ok) sendLatency.add(res.timings.duration);
+  if (sent.includes(false) && iter % 100 === 0) {
+    console.error(`envio falhou: ${res.status} ${String(res.body).slice(0, 200)}`);
   }
 }
 

@@ -4,11 +4,13 @@
 # roda o smoke e a execução principal (em EC2 Spot por padrão, ou em task Fargate), grava o resumo/HTML
 # localmente, coleta o CloudWatch, avalia C1-C11 e reverte o override.
 #
-# Uso: loadtest.sh <lean|full> [--rate 1000] [--duration 300] [--warmup 90] [--drain 60] [--alert-rate 0.01]
+# Uso: loadtest.sh <lean|full> [--rate 1000] [--duration 300] [--warmup 90] [--drain 60] [--alert-rate 0.01] [--batch-size 1]
 #                  [--runner ec2|fargate] [--instance-type c6i.xlarge] [--on-demand]
-#                  [--cpu 2048 --memory 4096] [--skip-smoke] [--keep] [--pause] [--purge] [--allow-no-metrics] [--yes]
+#                  [--cpu 2048 --memory 4096] [--skip-smoke] [--smoke-only] [--keep] [--pause] [--purge] [--allow-no-metrics] [--yes]
 #   --runner        onde roda o k6: ec2 (padrão; instância Spot via SSM) ou fargate (task; usa --cpu/--memory)
+#   --batch-size    eventos por SendMessageBatch (1 = SendMessage individual; máx. 10; --rate deve ser múltiplo)
 #   --on-demand     com --runner ec2: instância On-Demand em vez de Spot (fallback sem capacidade Spot)
+#   --smoke-only  roda só o smoke (~50 TPS por 60 s) e encerra, sem a carga principal nem a avaliação C1-C11
 #   --keep   não reverte o override On-Demand ao final (para repetir sem reaplicar)
 #   --pause  chama pause.sh ao final (ECS=0, RDS parado)
 #   --purge  esvazia transactions e DLQs se houver resíduos (por padrão aborta)
@@ -18,8 +20,8 @@
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
 PROFILE="${1:-}"; shift || true
-RATE=1000; DURATION=300; WARMUP=90; DRAIN=60; ALERT_RATE=0.01; CPU=2048; MEMORY=4096
-SKIP_SMOKE=0; KEEP=0; PAUSE=0; PURGE=0; ASSUME_YES=0; ALLOW_NO_METRICS=0
+BATCH_SIZE=1; RATE=1000; DURATION=300; WARMUP=90; DRAIN=60; ALERT_RATE=0.01; CPU=2048; MEMORY=4096
+SKIP_SMOKE=0; SMOKE_ONLY=0; KEEP=0; PAUSE=0; PURGE=0; ASSUME_YES=0; ALLOW_NO_METRICS=0
 RUNNER=ec2; USE_SPOT=true; INSTANCE_TYPE=""
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -28,12 +30,14 @@ while [ $# -gt 0 ]; do
     --warmup) WARMUP="${2:?}"; shift ;;
     --drain) DRAIN="${2:?}"; shift ;;
     --alert-rate) ALERT_RATE="${2:?}"; shift ;;
+    --batch-size) BATCH_SIZE="${2:?}"; shift ;;
     --cpu) CPU="${2:?}"; shift ;;
     --memory) MEMORY="${2:?}"; shift ;;
     --runner) RUNNER="${2:?}"; shift ;;
     --instance-type) INSTANCE_TYPE="${2:?}"; shift ;;
     --on-demand) USE_SPOT=false ;;
     --skip-smoke) SKIP_SMOKE=1 ;;
+    --smoke-only) SMOKE_ONLY=1 ;;
     --keep) KEEP=1 ;;
     --pause) PAUSE=1 ;;
     --purge) PURGE=1 ;;
@@ -43,6 +47,9 @@ while [ $# -gt 0 ]; do
   esac; shift
 done
 require_profile "$PROFILE"
+[ "$SMOKE_ONLY" = 0 ] || [ "$SKIP_SMOKE" = 0 ] || die "--smoke-only e --skip-smoke são incompatíveis"
+case "$BATCH_SIZE" in [1-9] | 10) ;; *) die "--batch-size inválido: $BATCH_SIZE (1 a 10)" ;; esac
+[ "$SMOKE_ONLY" = 1 ] || [ $((RATE % BATCH_SIZE)) -eq 0 ] || die "--rate ($RATE) deve ser múltiplo de --batch-size ($BATCH_SIZE)"
 case "$RUNNER" in ec2 | fargate) ;; *) die "--runner inválido: $RUNNER (use ec2 ou fargate)" ;; esac
 check_aws
 command -v docker >/dev/null || die "docker não encontrado"
@@ -85,9 +92,9 @@ STEADY_MIN=$(( DURATION / 60 ))
 TOTAL_S=$(( WARMUP + DURATION + DRAIN ))
 log "perfil=$PROFILE app=$APP_TAG k6=$K6_TAG | ${RATE} TPS: aquecimento ${WARMUP}s + steady ${DURATION}s (${STEADY_MIN} min) + drain ${DRAIN}s | alertas ${ALERT_RATE}"
 if [ "$RUNNER" = ec2 ]; then
-  log "k6: instância EC2 ${INSTANCE_TYPE:-padrão da arquitetura} ($([ "$USE_SPOT" = true ] && echo Spot || echo On-Demand)), envio individual (1 SendMessage por evento)"
+  log "k6: instância EC2 ${INSTANCE_TYPE:-padrão da arquitetura} ($([ "$USE_SPOT" = true ] && echo Spot || echo On-Demand)), $([ "$BATCH_SIZE" -eq 1 ] && echo 'envio individual (1 SendMessage por evento)' || echo "envio em lotes de $BATCH_SIZE (SendMessageBatch)")"
 else
-  log "k6: task Fargate ${CPU} CPU / ${MEMORY} MiB, envio individual (1 SendMessage por evento)"
+  log "k6: task Fargate ${CPU} CPU / ${MEMORY} MiB, $([ "$BATCH_SIZE" -eq 1 ] && echo 'envio individual (1 SendMessage por evento)' || echo "envio em lotes de $BATCH_SIZE (SendMessageBatch)")"
 fi
 confirm "Rodar o teste de carga na AWS? Aplica o override On-Demand (tasks do serviço substituídas) e gera custo."
 
@@ -251,11 +258,11 @@ run_k6() {
   RUN_BASE="$RESULTS_DIR/${stamp}-aws-${label}-${run_id}"
   mkdir -p "$RESULTS_DIR"
   local env_json
-  env_json="$(python3 - "$run_id" "$rate" "$duration" "$warmup" "$drain" "$arate" "$SINK_URL" "$p95" "$p99" "$RUNNER" "$AWS_REGION" "$TOPIC_ARN" <<'PY'
+  env_json="$(python3 - "$run_id" "$rate" "$duration" "$warmup" "$drain" "$arate" "$SINK_URL" "$p95" "$p99" "$RUNNER" "$AWS_REGION" "$TOPIC_ARN" "$BATCH_SIZE" <<'PY'
 import json, sys
-run_id, rate, duration, warmup, drain, arate, sink, p95, p99, runner, region, topic = sys.argv[1:13]
+run_id, rate, duration, warmup, drain, arate, sink, p95, p99, runner, region, topic, batch = sys.argv[1:14]
 env = {"RUN_ID": run_id, "RATE": rate, "DURATION_SECONDS": duration, "WARMUP_SECONDS": warmup, "DRAIN_SECONDS": drain,
-       "ALERT_RATE": arate, "SINK_QUEUE_URL": sink}
+       "ALERT_RATE": arate, "SINK_QUEUE_URL": sink, "BATCH_SIZE": batch}
 if p95: env["P95_MS"] = p95
 if p99: env["P99_MS"] = p99
 if runner == "ec2":
@@ -352,10 +359,16 @@ fetch_artifacts() { # <log stream> <run_id> <base>
 PASSED=1
 if [ "$SKIP_SMOKE" = 0 ]; then
   # O smoke valida o caminho (permissões, SigV4, sink, entrega): ~600 alertas não sustentam um p99, então a latência só falha acima de 5 s
-  run_k6 smoke 50 60 0 30 0.2 5000 5000
+  run_k6 smoke $(( (50 + BATCH_SIZE - 1) / BATCH_SIZE * BATCH_SIZE )) 60 0 30 0.2 5000 5000
   if [ "$RUN_EXIT" != 0 ]; then
     PASSED=0; log "smoke FALHOU (exit $RUN_EXIT): corrija permissões/assinatura/sink antes de subir a carga"
   fi
+fi
+
+if [ "$SMOKE_ONLY" = 1 ]; then
+  [ "$PASSED" = 1 ] && log "smoke APROVADO (--smoke-only: carga principal não executada)" || log "smoke REPROVADO"
+  [ "$PASSED" = 1 ]
+  exit
 fi
 
 if [ "$PASSED" = 1 ]; then
