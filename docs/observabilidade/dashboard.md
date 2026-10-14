@@ -1,5 +1,7 @@
 # Dashboard
 
+![Dashboard fraud-detector-operacao no CloudWatch](imagens/dashboard-cloudwatch.png)
+
 `fraud-detector-operacao`, no CloudWatch. A URL sai no output `dashboard_url` do Terraform. O intervalo padrão é de **3 horas**, com período automático. Os painéis seguem uma ordem de investigação: primeiro "o sistema está bem?", depois "onde está o problema?".
 
 ```
