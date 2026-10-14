@@ -23,6 +23,7 @@ Resposta ao case **CE 1** (take-home de 7 dias, defesa ao vivo). Esta pasta guar
 | 14 | [teste-de-carga-aws-4000tps.md](teste-de-carga-aws-4000tps.md) | Resultado do teste de carga a 4.000 TPS na AWS: critérios, latência, recursos e comparação com 1.000 TPS | executado (13/10/2026) |
 | 15 | [arquitetura-aws.md](arquitetura-aws.md) | Elementos da arquitetura na AWS (SQS, ECS, RDS, SNS, AppConfig e demais), com o desenho e os parâmetros dos perfis `lean` e `full` | pronto |
 | 16 | [observabilidade/](observabilidade/index.md) | Métricas, alarmes e dashboard do CloudWatch, explicados um a um | pronto |
+| 17 | [teste-de-carga-aws-8000tps.md](teste-de-carga-aws-8000tps.md) | Resultado da tentativa a 8.000 TPS com 8 tasks e lotes de 3: reprovada em C6 (p99 de 555 ms), com os demais critérios aprovados | executado (14/10/2026) |
 
 ## Escopo em fases (P-08)
 
@@ -35,7 +36,7 @@ Resposta ao case **CE 1** (take-home de 7 dias, defesa ao vivo). Esta pasta guar
 
 Próximos passos (o que ficou de fora e por quê) estão em [Limitações conhecidas e próximos passos](../README.md#limitações-conhecidas-e-próximos-passos), no README do repositório. Os que pedem decisão de documentação:
 
-1. Testes de 8.000 TPS e da rajada de 25k: **não executados** (cotas de Fargate e do gerador k6). O degrau de 4.000 TPS foi medido e aprovado em 13/10/2026; ver o [registro](registro-testes-aws.md) (achados A9 a A11) e os ADR-01 e ADR-04.
+1. Teste de 8.000 TPS e da rajada de 25k: o degrau de 4.000 TPS foi medido e aprovado em 13/10/2026. A **tentativa de 8.000 TPS (7.998, 8 tasks, lotes de 3) reprovou em C6** em 14/10/2026 (p99 de serviço de 555 ms, limite de 500 ms; CPU do ECS a 72,9%), e a repetição com mais tasks depende da cota de Fargate. A rajada de 25k **não foi executada**. Ver o [resultado](teste-de-carga-aws-8000tps.md), o [registro](registro-testes-aws.md) (achados A9 a A13) e os ADR-01 e ADR-04.
 2. Fechar as lacunas listadas nos [ADR-07](adr/ADR-07-seguranca-autenticacao-e-lgpd.md#lacunas-conhecidas) e [ADR-08](adr/ADR-08-observabilidade-e-slos.md#lacunas-conhecidas) que couberem no prazo. O alarme do SLO de latência e o do *outbox* já estão ativos; restam, por exemplo, o alarme de *circuit breaker* aberto e os *runbooks*.
 
 ## Rastreabilidade

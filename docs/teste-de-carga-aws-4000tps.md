@@ -155,7 +155,9 @@ Com 4× a carga, a CPU do RDS não chegou a dobrar. A CPU do ECS subiu mais, em 
 
 ## 9. Próximo degrau
 
-O próximo passo é 8.000 TPS e a rajada de 25k, **ainda não executados** por limite de cota (EC2 Spot e Fargate On-Demand de 8 vCPU cada, pedido de aumento aberto) e por falta de shards do gerador. As extrapolações abaixo são **estimativas lineares, não medições**:
+> **Atualização de 14/10/2026:** o degrau de 8.000 TPS foi tentado com 8 tasks (cota cheia) e lotes de 3 e **reprovou em C6** (p99 de serviço de 555 ms). Ver [teste-de-carga-aws-8000tps.md](teste-de-carga-aws-8000tps.md). A rajada de 25k segue não executada.
+
+O próximo passo era 8.000 TPS e a rajada de 25k, **não executados na época** por limite de cota (EC2 Spot e Fargate On-Demand de 8 vCPU cada, pedido de aumento aberto) e por falta de shards do gerador. As extrapolações abaixo são **estimativas lineares, não medições**, e foram escritas antes do degrau de 8.000 TPS:
 
 | Item | Estimativa para 8.000 TPS |
 |---|---|
