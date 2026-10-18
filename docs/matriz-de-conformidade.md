@@ -112,9 +112,9 @@ Dos 29 RF de prioridade **M**, 21 estão atendidos e 8 ficaram parciais ou não 
 
 | ID | Situação | Evidência e observações |
 |---|---|---|
-| RNF-01 | ⏭️ | Meta: 8.000 TPS por 1 h. **Medido: 4.000 TPS por 5 min de janela estável** (aprovado), 6 tasks, CPU 49,6% (ECS) e 15,9% (RDS). 8k não foi executado; a estimativa linear é de 10 a 12 tasks (**estimativa, não medição**) |
+| RNF-01 | ⏭️ | Meta: 8.000 TPS por 1 h. **Medido: 4.000 TPS por 5 min de janela estável** (aprovado), 6 tasks, CPU 49,6% (ECS) e 15,9% (RDS). **Tentativa de 8k (7.998 TPS, 8 tasks, lotes de 3, 14/10/2026): reprovada em C6** (p99 de serviço de 555 ms, limite de 500 ms), com 0 perdas, ECS a 72,9% e RDS a 22,9%. A estimativa linear é de 10 a 12 tasks (**estimativa, não medição**) e a repetição depende da cota de Fargate. Janela de 5 min, não 1 h |
 | RNF-02 | ⏭️ | 25k TPS não executado. Há *buffer* de SQS e alarme de idade da fila, sem prova de drenagem em ≤ 5 min |
-| RNF-03 | 🟡 | **A 4.000 TPS:** serviço p50 35 · p95 90 · **p99 174 ms** (máx. 475 ms); e2e p99 207 ms (inclui envio e *fan-out*). Atende as metas, mas a 4k e não a 8k. Nomes de métrica divergem do requisito (`alert_latency_ms`, não `alert_e2e_latency_seconds`; sem `queue_wait_seconds`; ADR-08, lacuna 5) |
+| RNF-03 | 🟡 | **A 4.000 TPS:** serviço p50 35 · p95 90 · **p99 174 ms** (máx. 475 ms); e2e p99 207 ms (inclui envio e *fan-out*). Atende as metas a 4k; **a 7.998 TPS com 8 tasks o p99 de serviço foi de 555 ms (não atende)**. Nomes de métrica divergem do requisito (`alert_latency_ms`, não `alert_e2e_latency_seconds`; sem `queue_wait_seconds`; ADR-08, lacuna 5) |
 | RNF-04 | ❌ | Orçamento por etapa não é medido: sem spans por etapa. Só se mede o total (e2e) |
 | RNF-05 | 🟡 | 1.000 TPS com 3 tasks (CPU 22 a 31%) e 4.000 TPS com 6 tasks (50%), compatível com crescimento ~linear; não foi feito o teste N × 2N controlado |
 | RNF-06 | ✅ | Caminho quente sem componente central **exceto o Postgres** (instância única no perfil `lean`; Multi-AZ no `full`). Só 1% dos eventos o toca; CPU 15,9% a 4k (ADR-04) |
